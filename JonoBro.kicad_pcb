@@ -2626,7 +2626,7 @@
   (gr_text "^INPUT" (at 134 101.253731 90) (layer "F.SilkS") (tstamp c12ccfa9-e02a-4353-8aa4-ffd61f91b448)
     (effects (font (size 2.4 2.4) (thickness 0.6) bold) (justify left bottom))
   )
-  (gr_text "TRIGGER" (at 125.256592 118.564313) (layer "F.SilkS") (tstamp c8117bea-f0a2-4052-ab44-62cf59c20304)
+  (gr_text "TRIGGER" (at 120 113 90) (layer "F.SilkS") (tstamp c8117bea-f0a2-4052-ab44-62cf59c20304)
     (effects (font (size 1.1 1.1) (thickness 0.165)) (justify left bottom))
   )
   (gr_text "R-MR" (at 148.688353 90.753731 270) (layer "F.SilkS") (tstamp e034a927-3b32-4008-bedd-e75ee441ded8)
