@@ -4,17 +4,22 @@
 #include <CircularBuffer.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include <WebServer.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <ElegantOTA.h>
+#include <WebSerial.h>
+
+
+bool debug = true; // turns ap mode on
 
 const char* ssid = "ae-update";
 
-const int windscreen = 10; // 10
-const int lMirror = 6; // 6
-const int rMirror = 7; // 7
-const int vIn = 32; // 1
-const int sysLED = 13; // 4
-const int onSwitch = 34; // 5
+const int windscreen = 3; // 0.2: 10, 0.1: 3
+//const int lMirror = -1; // 0.2: 6, 0.1: 3
+//const int rMirror = -1; // 0.2: 7, 0.1: 3
+const int vIn = 1; // 1
+const int sysLED = 4; // 4
+const int onSwitch = 5; // 5
 const int numReadings = 100; // ADC samples (of inputVoltage) per poll
 
 int brightness = 20;  // how bright the sysLED is
@@ -40,7 +45,7 @@ bool disableTasks = 0; // Stores the state for when the device is in update mode
 
 const float r1 = 13000.0f; // R1 in ohm, 13k
 const float r2 = 2200.0f; // R2 in ohm, 2.2k
-float vRefScale = (3.3f / 4096.0f) * ((r1 + r2) / r2); // gives us the voltage per LSB
+float vRefScale = (3.0f / 4096.0f) * ((r1 + r2) / r2); // gives us the voltage per LSB (0.005060369318)
 
 long total = 0;
 long loopCounter = 0;
@@ -54,7 +59,7 @@ hw_timer_t *clear_state_timer = NULL;
 
 Preferences preferences;
 
-WebServer server(80);
+AsyncWebServer server(80);
 unsigned long ota_progress_millis = 0;
 
 CircularBuffer<float, 200> buffer;
@@ -69,9 +74,20 @@ void IRAM_ATTR onTimer() {
   eventTimerExpired = true;
 }
 
+/* Message callback of WebSerial */
+void recvMsg(uint8_t *data, size_t len){
+  WebSerial.println("Received Data...");
+  String d = "";
+  for(int i=0; i < len; i++){
+    d += char(data[i]);
+  }
+  WebSerial.println(d);
+}
+
 void onOTAStart() {
   // Log when OTA has started
   Serial.println("OTA update started!");
+  WebSerial.println("OTA update started!");
   // <Add your own code here>
 }
 
@@ -80,6 +96,7 @@ void onOTAProgress(size_t current, size_t final) {
   if (millis() - ota_progress_millis > 1000) {
     ota_progress_millis = millis();
     Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
+    WebSerial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
   }
 }
 
@@ -87,28 +104,34 @@ void onOTAEnd(bool success) {
   // Log when OTA has finished
   if (success) {
     Serial.println("OTA update finished successfully!");
+    WebSerial.println("OTA update finished successfully!");
   } else {
     Serial.println("There was an error during OTA update!");
+    WebSerial.println("There was an error during OTA update!");
   }
   // <Add your own code here>
 }
 
 void wifiAPUpdate() {
   Serial.println("Updating firmware, switch off heaters...");
-  digitalWrite(lMirror, LOW); // low is on
-  digitalWrite(rMirror, LOW); // low is on
+  //digitalWrite(lMirror, LOW); // low is on
+  //digitalWrite(rMirror, LOW); // low is on
   digitalWrite(windscreen, LOW); // low is on
 
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid);
-  Serial.print("[+] AP Created with IP Gateway ");
-  Serial.println(WiFi.softAPIP());
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("ae-update AP IP address: ");
+  Serial.println(IP);
+  Serial.println("WebSerial is accessible at /webserial in browser");
 
-  server.on("/", []() {
-    server.send(200, "text/plain", "Time to update the Landy Heater Controller!");
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->redirect("/update");
   });
 
-  ElegantOTA.begin(&server);    // Start ElegantOTA
+  ElegantOTA.begin(&server);    // start ElegantOTA
+  WebSerial.begin(&server);     // start webserial
+  WebSerial.msgCallback(recvMsg);
   ElegantOTA.onStart(onOTAStart);
   ElegantOTA.onProgress(onOTAProgress);
   ElegantOTA.onEnd(onOTAEnd);
@@ -150,15 +173,18 @@ void processSwitchEvents()
     {
       stateChangeCounter++;
       Serial.println("Looks like switch is on...");
+      WebSerial.println("Looks like switch is on...");
     }
     else
     {
       Serial.println("Looks like switch is off...");
+      WebSerial.println("Looks like switch is off...");
     }
   }
   else 
   {
     Serial.println("Debounced onSwitchEvents!");
+    WebSerial.println("Debounced onSwitchEvents!");
   }
   lastDebounceTime = millis();
   needToProcessSwitchEvents = false;
@@ -226,7 +252,7 @@ long smooth()
 
 void checkVoltage()
 {
-  buffer.push(smooth() * (vRefScale * 1.006)); // fill the circular buffer for super smooth values
+  buffer.push(smooth() * (vRefScale * 1.01)); // fill the circular buffer for super smooth values
 
   if (millis() - newtime >= 1000)
   {
@@ -240,7 +266,10 @@ void checkVoltage()
     }
 
     inputVoltage = avg;
-    if (inputVoltage <= 13.00) // I've plucked 13v from fat air //ToDo: change me back to >=
+    Serial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
+    WebSerial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
+
+    if (inputVoltage >= 13.00) // I've plucked 13v from fat air
     {
       if ((!readyToSetMode) && (settingsLoopCounter == 0))
       {
@@ -250,16 +279,19 @@ void checkVoltage()
           if ((onTime != -1) && (!onTimerExpired)) // auto mode, timer not expired
           {
             Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
+            WebSerial.printf("Auto mode timer running for %i minutes...\n", onTime);
+            
             //ToDo: set the off timer
-            digitalWrite(lMirror, LOW); // low is on
-            digitalWrite(rMirror, LOW); // low is on
+            //digitalWrite(lMirror, LOW); // low is on
+            //digitalWrite(rMirror, LOW); // low is on
             digitalWrite(windscreen, LOW); // low is on
           }
           else if ((onTime != -1) && (onTimerExpired)) // auto mode, timer expired
           {
             Serial.println("Auto mode, timer expired!");
-            digitalWrite(lMirror, HIGH); // high is off
-            digitalWrite(rMirror, HIGH); // high is off
+            WebSerial.println("Auto mode, timer expired!");
+            //digitalWrite(lMirror, HIGH); // high is off
+            //digitalWrite(rMirror, HIGH); // high is off
             digitalWrite(windscreen, HIGH); // high is off
           }
           else
@@ -267,15 +299,17 @@ void checkVoltage()
             if (onSwitchState) // manual mode, switch on
             {
               Serial.println("Manual mode, switch on...");
-              digitalWrite(lMirror, LOW); // low is on
-              digitalWrite(rMirror, LOW); // low is on
+              WebSerial.println("Manual mode, switch on...");
+              //digitalWrite(lMirror, LOW); // low is on
+              //digitalWrite(rMirror, LOW); // low is on
               digitalWrite(windscreen, LOW); // low is on
             }
             else // manual mode, switch off
             {
               Serial.println("Manual mode, switch off!");
-              digitalWrite(lMirror, LOW); // low is on
-              digitalWrite(rMirror, LOW); // low is on
+              WebSerial.println("Manual mode, switch off!");
+              //digitalWrite(lMirror, LOW); // low is on
+              //digitalWrite(rMirror, LOW); // low is on
               digitalWrite(windscreen, LOW); // low is on
             }
           }
@@ -283,11 +317,13 @@ void checkVoltage()
         else
         {
           Serial.println("Waiting for the input voltage to stabilise...");
+          WebSerial.println("Waiting for the input voltage to stabilise...");
         }
       }
       else
       {
         Serial.printf("input voltage too low to turn on heater for %i minutes!\n", onTime);
+        WebSerial.printf("input voltage too low to turn on heater for %i minutes!\n", onTime);
       }
     }
   }
@@ -298,15 +334,15 @@ void setup() {
   Serial.begin(9600);
 
   // initialise digital pins as an output.
-  //pinMode(windscreen, OUTPUT);
-  //pinMode(lMirror, OUTPUT);
-  //pinMode(rMirror, OUTPUT);
-  //pinMode(vIn, OUTPUT);
+  pinMode(windscreen, INPUT_PULLDOWN);
+  //pinMode(lMirror, INPUT_PULLDOWN);
+  //pinMode(rMirror, INPUT_PULLDOWN);
+  pinMode(vIn, INPUT);
   pinMode(sysLED, OUTPUT);
-  pinMode(onSwitch, INPUT);
+  pinMode(onSwitch, INPUT_PULLUP);
 
   // set outputs to off (high = off)
-  //digitalWrite(windscreen, HIGH);
+  digitalWrite(windscreen, HIGH);
   //digitalWrite(lMirror, HIGH);
   //digitalWrite(rMirror, HIGH);
 
@@ -327,12 +363,11 @@ void setup() {
 // the loop function runs over and over again forever
 void loop() 
 {
-  if (updateEnable)
+  if ((updateEnable) || (debug))
   {
     if (updateRunning)
     {
       ElegantOTA.loop();
-      server.handleClient();
     }
     else
     {
@@ -363,44 +398,61 @@ void loop()
 
   if (loopCounter == 50)
   {
-    Serial.printf("stateChangeCounter has been set high %i times\n", stateChangeCounter);
-    Serial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
     loopCounter = 0;
   }
 
   if (eventTimerExpired)
   {
+    Serial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
+    Serial.println(stateChangeCounter);
+    Serial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
     Serial.printf("ModeResetCounter = %i \n\n", t2-t1);
+
+    WebSerial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
+    WebSerial.println(stateChangeCounter);
+    WebSerial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
+    WebSerial.printf("ModeResetCounter = %i \n\n", t2-t1);
+
+
     settingsLoopCounter++; // set to 1 for first loop, timer from switch toggled on
     if ((stateChangeCounter == 3) && (settingsLoopCounter == 1))
     {
       stateChangeCounter = 0; // reset counter to 0 for the second loop
       updateEnable = true; // enable WiFi AP
       Serial.println("AP enabled for firmware update!\n");
+      WebSerial.println("AP enabled for firmware update!\n");
       eventTimerExpired = false;
+      timerAlarmDisable(clear_state_timer);
     }
-    else if ((stateChangeCounter == 2) && (settingsLoopCounter == 1))
+    if ((stateChangeCounter == 2) && (settingsLoopCounter == 1))
     {
       Serial.println("Switch has been toggled twice, entering into mode settings...");
+      WebSerial.println("Switch has been toggled twice, entering into mode settings...");
       stateChangeCounter = 0; // reset counter to 0 for the second loop
       Serial.println("Soft resetting loop counters...");
+      WebSerial.println("Soft resetting loop counters...");
     }
-    if (((stateChangeCounter == 2)) && (settingsLoopCounter == 2))
+    if (settingsLoopCounter == 2)
     {
       Serial.println("Mode is being set...");
+      WebSerial.println("Mode is being set...");
       onTime = stateChangeCounter;
       if (onTime == 0) // switch state to manual
       {
         onTime = -1; // app state to manual
         Serial.println("Mode is set to manual!");
+        WebSerial.println("Mode is set to manual!");
       }
       else
       {
         Serial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
+        WebSerial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
       }
       needToSavePreferences = true;
       stateChangeCounter = 0;
+      timerAlarmDisable(clear_state_timer);
       Serial.println("Soft resetting loop counters...");
+      WebSerial.println("Soft resetting loop counters...");
     }
     eventTimerExpired = false;
   }
@@ -411,6 +463,7 @@ void loop()
     stateChangeCounter = 0;
     settingsLoopCounter = 0;
     Serial.println("Hard resetting loop counters and states: Settings timeout!\n");
+    WebSerial.println("Hard resetting loop counters and states: Settings timeout!\n");
     t1 = millis(); // reset the timer for the third loop, save settings
     timerAlarmDisable(clear_state_timer);
   }
