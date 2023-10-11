@@ -24,7 +24,7 @@ const int numReadings = 100; // ADC samples (of inputVoltage) per poll
 
 int brightness = 20;  // how bright the sysLED is
 int fadeAmount = 5;  // how many points to fade the sysLED by
-int onTime = -1; // -1 manual/unconfigured
+int onTime; // -1 manual/unconfigured
 int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
 int readings[numReadings]; 
 int readIndex = 0;
@@ -36,12 +36,13 @@ float inputVoltage; // device input voltage, used to know when not to enable the
 bool updateEnable = false; // stores whether or not to enable WiFI AP for the purposes of updating the firmware
 bool updateRunning = false; // stores whether or not the AP has been started
 bool onSwitchState = 0; // stores the on switch state, set to 1 (off) 
-bool onTimerExpired = 0; // stores the state of the heater on timer
 bool eventTimerExpired = 0; // stores the state of the event timer
-bool readyToSetMode = 0; // Stores whether or not a change of modes is required
+bool readyToSetMode = 0; // stores whether or not a change of modes is required
 bool needToSavePreferences = 0; // stores whether or not to update preferences, for use in the main loop
 bool needToProcessSwitchEvents = 0; // stores whether or not to proces an interrupt driven switch event
-bool disableTasks = 0; // Stores the state for when the device is in update mode
+bool disableTasks = 0; // stores the state for when the device is in update mode
+bool autoMode = 1; // stores the manual or auto run state
+bool autoTimeout = 0; // stores the state of the autoTimeout feature
 
 const float r1 = 13000.0f; // R1 in ohm, 13k
 const float r2 = 2200.0f; // R2 in ohm, 2.2k
@@ -50,12 +51,17 @@ float vRefScale = (3.0f / 4096.0f) * ((r1 + r2) / r2); // gives us the voltage p
 long total = 0;
 long loopCounter = 0;
 long int t1 = 0;
+long int t2 = 0;
+
+char serial_input_char; // stores the char from inbound uart
+#define MAX_MESSAGE 30
 
 unsigned long newtime = 0;
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 unsigned long debounceDelay = 150;    // the debounce time; increase if the output flickers
 
 hw_timer_t *clear_state_timer = NULL;
+hw_timer_t *output_enable_timer = NULL;
 
 Preferences preferences;
 
@@ -70,8 +76,15 @@ uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 // Variable to store if sending data was successful
 String success;
 
-void IRAM_ATTR onTimer() {
+void IRAM_ATTR onTimer1() { // switch input timeout
   eventTimerExpired = true;
+}
+
+void IRAM_ATTR onTimer2() { // ouput timeout
+  digitalWrite(windscreen, HIGH); // high is off
+  timerRestart(output_enable_timer); // reset the counter for next time
+  timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
+  autoTimeout = true;
 }
 
 /* Message callback of WebSerial */
@@ -165,69 +178,6 @@ void switchEvent() // toggle switch in cabin
   }
 }
 
-void processSwitchEvents()
-{
-  if ((millis() - lastDebounceTime) > debounceDelay) 
-  {
-    if (onSwitchState)
-    {
-      stateChangeCounter++;
-      Serial.println("Looks like switch is on...");
-      WebSerial.println("Looks like switch is on...");
-    }
-    else
-    {
-      Serial.println("Looks like switch is off...");
-      WebSerial.println("Looks like switch is off...");
-    }
-  }
-  else 
-  {
-    Serial.println("Debounced onSwitchEvents!");
-    WebSerial.println("Debounced onSwitchEvents!");
-  }
-  lastDebounceTime = millis();
-  needToProcessSwitchEvents = false;
-}
-
-void loadPreferences()
-{
-  if (preferences.begin("ae-landy-heater", false))
-  {
-    if (preferences.getBool("configured"))
-    {
-      onTime = preferences.getInt("onTime");
-      Serial.print("Device has been configured!");
-      if (onTime == -1)
-      {
-        Serial.print("Device is running in manual mode!");
-      } 
-      else
-      {
-        Serial.printf("Device is running in auto mode and on for %i minutes", onTime);
-      }
-    }
-  }
-  preferences.end();
-}
-
-void savePreferences()
-{  
-  Serial.println("saving settings to flash");
-  preferences.begin("ae-landy-heater", false);
-  preferences.putInt("onTime", onTime);
-  preferences.end();
-  needToSavePreferences = false;
-}
-
-void factoryReset()
-{
-  nvs_flash_erase(); // erase the NVS partition.
-  nvs_flash_init();  // initialize the NVS partition.
-  delay(500);
-  ESP.restart(); // reset to clear memory
-}
-
 long smooth()
 { /* function smooth */
   ////Perform average on sensor readings
@@ -269,34 +219,46 @@ void checkVoltage()
     Serial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
     WebSerial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
 
-    if (inputVoltage >= 13.00) // I've plucked 13v from fat air
+    
+    if (inputVoltage < 13.00) // I've plucked 13v from fat air
     {
-      if ((!readyToSetMode) && (settingsLoopCounter == 0))
+      Serial.println("Input voltage too low to turn on heater!");
+      WebSerial.println("Input voltage too low to turn on heater!");
+      digitalWrite(windscreen, HIGH); // high is off
+      timerRestart(output_enable_timer); // reset the counter for next time
+      timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
+      Serial.println("Outputs and timer disabled!");
+      WebSerial.println("Outputs and timer disabled!");
+    }
+  }
+}
+
+void processSwitchEvents()
+{
+  if ((millis() - lastDebounceTime) > debounceDelay) 
+  {
+    if (onSwitchState)
+    {
+      stateChangeCounter++;
+      Serial.println("Looks like switch is on...");
+      WebSerial.println("Looks like switch is on...");
+      if (inputVoltage >= 13.00) // I've plucked 13v from fat air
       {
-        if (buffer.size() > 199)
+        if ((!readyToSetMode) && (settingsLoopCounter == 0))
         {
-          //logic is reversed, 0/false is on
-          if ((onTime != -1) && (!onTimerExpired)) // auto mode, timer not expired
+          if (buffer.size() > 199)
           {
-            Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
-            WebSerial.printf("Auto mode timer running for %i minutes...\n", onTime);
-            
-            //ToDo: set the off timer
-            //digitalWrite(lMirror, LOW); // low is on
-            //digitalWrite(rMirror, LOW); // low is on
-            digitalWrite(windscreen, LOW); // low is on
-          }
-          else if ((onTime != -1) && (onTimerExpired)) // auto mode, timer expired
-          {
-            Serial.println("Auto mode, timer expired!");
-            WebSerial.println("Auto mode, timer expired!");
-            //digitalWrite(lMirror, HIGH); // high is off
-            //digitalWrite(rMirror, HIGH); // high is off
-            digitalWrite(windscreen, HIGH); // high is off
-          }
-          else
-          {
-            if (onSwitchState) // manual mode, switch on
+            //logic is reversed, 0/false is on
+            if ((autoMode) && (!autoTimeout)) // auto mode, timer not expired
+            {
+              Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
+              WebSerial.printf("Auto mode timer running for %i minutes...\n", onTime);
+              //digitalWrite(lMirror, LOW); // low is on
+              //digitalWrite(rMirror, LOW); // low is on
+              digitalWrite(windscreen, LOW); // low is on
+              timerAlarmEnable(output_enable_timer); // enable the output timeout timer
+            }
+            else if ((!autoMode) && (autoTimeout)) // manual mode
             {
               Serial.println("Manual mode, switch on...");
               WebSerial.println("Manual mode, switch on...");
@@ -304,29 +266,136 @@ void checkVoltage()
               //digitalWrite(rMirror, LOW); // low is on
               digitalWrite(windscreen, LOW); // low is on
             }
-            else // manual mode, switch off
-            {
-              Serial.println("Manual mode, switch off!");
-              WebSerial.println("Manual mode, switch off!");
-              //digitalWrite(lMirror, LOW); // low is on
-              //digitalWrite(rMirror, LOW); // low is on
-              digitalWrite(windscreen, LOW); // low is on
-            }
+          }
+          else
+          {
+            Serial.println("Waiting for the input voltage to stabilise...");
+            WebSerial.println("Waiting for the input voltage to stabilise...");
           }
         }
-        else
-        {
-          Serial.println("Waiting for the input voltage to stabilise...");
-          WebSerial.println("Waiting for the input voltage to stabilise...");
-        }
-      }
-      else
-      {
-        Serial.printf("input voltage too low to turn on heater for %i minutes!\n", onTime);
-        WebSerial.printf("input voltage too low to turn on heater for %i minutes!\n", onTime);
       }
     }
+    else
+    {
+      Serial.println("Looks like switch is off...");
+      WebSerial.println("Looks like switch is off...");
+      // turn off the outputs
+      digitalWrite(windscreen, HIGH); // high is off
+      timerRestart(output_enable_timer); // reset the counter for next time
+      timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
+      Serial.println("Outputs and timer disabled!");
+      WebSerial.println("Outputs and timer disabled!");
+    }
   }
+  else 
+  {
+    Serial.println("Debounced onSwitchEvents!");
+    WebSerial.println("Debounced onSwitchEvents!");
+  }
+  lastDebounceTime = millis();
+  needToProcessSwitchEvents = false;
+}
+
+void loadPreferences()
+{
+  if (preferences.begin("ae-landy-heater", false))
+  {
+    if (preferences.getBool("configured"))
+    {
+      onTime = preferences.getInt("onTime");
+      autoMode = preferences.getBool("autoMode");
+      Serial.print("Device has been configured!");
+      if (!autoMode)
+      {
+        Serial.print("Device is running in manual mode!");
+      } 
+      else
+      {
+        Serial.printf("Device is running in auto mode and on for %i minutes", onTime);
+      }
+    }
+    else
+    {
+      preferences.putBool("autoMode", true);
+      preferences.putInt("onTime", 10);
+      preferences.putBool("configured", true);
+    }
+  }
+  preferences.end();
+}
+
+void savePreferences()
+{  
+  Serial.println("saving settings to flash");
+  preferences.begin("ae-landy-heater", false);
+  preferences.putInt("onTime", onTime);
+  preferences.end();
+  needToSavePreferences = false;
+}
+
+void factoryReset()
+{
+  nvs_flash_erase(); // erase the NVS partition.
+  nvs_flash_init();  // initialize the NVS partition.
+  delay(500);
+  ESP.restart(); // reset to clear memory
+}
+
+void processEventData()
+{
+  Serial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
+  Serial.println(stateChangeCounter);
+  Serial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
+  Serial.printf("ModeResetCounter = %i \n\n", t2-t1);
+
+  WebSerial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
+  WebSerial.println(stateChangeCounter);
+  WebSerial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
+  WebSerial.printf("ModeResetCounter = %i \n\n", t2-t1);
+
+
+  settingsLoopCounter++; // set to 1 for first loop, timer from switch toggled on
+  if ((stateChangeCounter == 3) && (settingsLoopCounter == 1))
+  {
+    stateChangeCounter = 0; // reset counter to 0 for the second loop
+    updateEnable = true; // enable WiFi AP
+    Serial.println("AP enabled for firmware update!\n");
+    WebSerial.println("AP enabled for firmware update!\n");
+    eventTimerExpired = false;
+    timerAlarmDisable(clear_state_timer);
+  }
+  if ((stateChangeCounter == 2) && (settingsLoopCounter == 1))
+  {
+    Serial.println("Switch has been toggled twice, entering into mode settings...");
+    WebSerial.println("Switch has been toggled twice, entering into mode settings...");
+    stateChangeCounter = 0; // reset counter to 0 for the second loop
+    Serial.println("Soft resetting loop counters...");
+    WebSerial.println("Soft resetting loop counters...");
+  }
+  if (settingsLoopCounter == 2)
+  {
+    Serial.println("Mode is being set...");
+    WebSerial.println("Mode is being set...");
+    onTime = stateChangeCounter;
+    if (onTime == 0) // switch state to manual
+    {
+      onTime = -1;
+      autoMode = 0;
+      Serial.println("Mode is set to manual!");
+      WebSerial.println("Mode is set to manual!");
+    }
+    else
+    {
+      Serial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
+      WebSerial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
+    }
+    needToSavePreferences = true;
+    stateChangeCounter = 0;
+    timerAlarmDisable(clear_state_timer);
+    Serial.println("Soft resetting loop counters...");
+    WebSerial.println("Soft resetting loop counters...");
+  }
+  eventTimerExpired = false;
 }
 
 void setup() {
@@ -346,7 +415,7 @@ void setup() {
   //digitalWrite(lMirror, HIGH);
   //digitalWrite(rMirror, HIGH);
 
-  //loadPreferences();
+  loadPreferences();
   newtime = millis();
 
   // detect switch events
@@ -354,8 +423,14 @@ void setup() {
 
   // setup state change counter wipe, to timout enter settings changes/modes
   clear_state_timer = timerBegin(0, 80, true);
-  timerAttachInterrupt(clear_state_timer, &onTimer, true);
+  timerAttachInterrupt(clear_state_timer, &onTimer1, true);
   timerAlarmWrite(clear_state_timer, 5000000, true); // 5 seconds
+
+  output_enable_timer = timerBegin(1, 80, true);
+  timerAttachInterrupt(output_enable_timer, &onTimer2, true);
+  timerAlarmWrite(output_enable_timer, 600000000, true); // 10 minutes
+
+  //ToDo: set the preferences, read and set the timer
 
   Serial.println("\n\nSetup done");
 }
@@ -376,7 +451,7 @@ void loop()
     updateRunning = true;
   }
 
-  long int t2 = millis();
+  t2 = millis();
 
   if (needToProcessSwitchEvents)
   {
@@ -396,65 +471,33 @@ void loop()
     savePreferences();
   }
 
-  if (loopCounter == 50)
-  {
-    loopCounter = 0;
-  }
-
   if (eventTimerExpired)
   {
-    Serial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
-    Serial.println(stateChangeCounter);
-    Serial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
-    Serial.printf("ModeResetCounter = %i \n\n", t2-t1);
+    processEventData();
+  }
 
-    WebSerial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
-    WebSerial.println(stateChangeCounter);
-    WebSerial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
-    WebSerial.printf("ModeResetCounter = %i \n\n", t2-t1);
+  static char buffer[MAX_MESSAGE];
+  static unsigned char index = 0;
 
-
-    settingsLoopCounter++; // set to 1 for first loop, timer from switch toggled on
-    if ((stateChangeCounter == 3) && (settingsLoopCounter == 1))
-    {
-      stateChangeCounter = 0; // reset counter to 0 for the second loop
-      updateEnable = true; // enable WiFi AP
-      Serial.println("AP enabled for firmware update!\n");
-      WebSerial.println("AP enabled for firmware update!\n");
-      eventTimerExpired = false;
-      timerAlarmDisable(clear_state_timer);
-    }
-    if ((stateChangeCounter == 2) && (settingsLoopCounter == 1))
-    {
-      Serial.println("Switch has been toggled twice, entering into mode settings...");
-      WebSerial.println("Switch has been toggled twice, entering into mode settings...");
-      stateChangeCounter = 0; // reset counter to 0 for the second loop
-      Serial.println("Soft resetting loop counters...");
-      WebSerial.println("Soft resetting loop counters...");
-    }
-    if (settingsLoopCounter == 2)
-    {
-      Serial.println("Mode is being set...");
-      WebSerial.println("Mode is being set...");
-      onTime = stateChangeCounter;
-      if (onTime == 0) // switch state to manual
-      {
-        onTime = -1; // app state to manual
-        Serial.println("Mode is set to manual!");
-        WebSerial.println("Mode is set to manual!");
+  while (Serial.available() > 0) {
+    serial_input_char = Serial.read();
+    if (serial_input_char == '\r') {
+      Serial.print("You entered: ");
+      Serial.println(buffer);
+      buffer[0] = 0;
+      index = 0;
+    } else {        
+      if (index < MAX_MESSAGE-1) {
+        buffer[index++] = serial_input_char;
+        buffer[index] = 0;
       }
-      else
-      {
-        Serial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
-        WebSerial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
-      }
-      needToSavePreferences = true;
-      stateChangeCounter = 0;
-      timerAlarmDisable(clear_state_timer);
-      Serial.println("Soft resetting loop counters...");
-      WebSerial.println("Soft resetting loop counters...");
     }
-    eventTimerExpired = false;
+  } 
+
+  if (autoTimeout)
+  {
+    Serial.println("Auto timeout has switched off outputs...");
+    WebSerial.println("Auto timeout has switched off outputs...");
   }
 
   if ((t2-t1 > 10000) && (eventTimerExpired)) // timeout mode setting after 10 seconds
@@ -467,6 +510,4 @@ void loop()
     t1 = millis(); // reset the timer for the third loop, save settings
     timerAlarmDisable(clear_state_timer);
   }
-  delay(30);
-  loopCounter++;
 }
