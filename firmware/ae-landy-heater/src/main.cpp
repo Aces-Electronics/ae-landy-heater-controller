@@ -12,7 +12,9 @@
 
 bool debug = true; // turns ap mode on
 
-const char* ssid = "ae-update";
+//const char* ssid = "ae-update";
+const char* ssid = "ShelveNET";
+const char* password = "buttpiratry";
 
 const int windscreen = 3; // 0.2: 10, 0.1: 3
 //const int lMirror = -1; // 0.2: 6, 0.1: 3
@@ -95,6 +97,16 @@ void recvMsg(uint8_t *data, size_t len){
     d += char(data[i]);
   }
   WebSerial.println(d);
+  if (d == "0")
+  {
+    digitalWrite(windscreen, LOW); // low is on
+    WebSerial.println("Turning outputs ON!");
+  }
+  else if (d == "1")
+  {
+    digitalWrite(windscreen, HIGH); // low is on
+    WebSerial.println("Turning outputs OFF!");
+  }
 }
 
 void onOTAStart() {
@@ -127,13 +139,17 @@ void onOTAEnd(bool success) {
 
 void wifiAPUpdate() {
   Serial.println("Updating firmware, switch off heaters...");
-  //digitalWrite(lMirror, LOW); // low is on
-  //digitalWrite(rMirror, LOW); // low is on
-  digitalWrite(windscreen, LOW); // low is on
+  //digitalWrite(lMirror, HIGH); // low is on
+  //digitalWrite(rMirror, HIGH); // low is on
+  digitalWrite(windscreen, HIGH); // low is on
 
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(ssid);
-  IPAddress IP = WiFi.softAPIP();
+  //WiFi.mode(WIFI_AP);
+  //WiFi.softAP(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  //WiFi.softAP(ssid);
+  //IPAddress IP = WiFi.softAPIP();
+  IPAddress IP = WiFi.localIP();
   Serial.print("ae-update AP IP address: ");
   Serial.println(IP);
   Serial.println("WebSerial is accessible at /webserial in browser");
@@ -403,7 +419,7 @@ void setup() {
   Serial.begin(9600);
 
   // initialise digital pins as an output.
-  pinMode(windscreen, INPUT_PULLDOWN);
+  pinMode(windscreen, OUTPUT);
   //pinMode(lMirror, INPUT_PULLDOWN);
   //pinMode(rMirror, INPUT_PULLDOWN);
   pinMode(vIn, INPUT);
@@ -510,4 +526,5 @@ void loop()
     t1 = millis(); // reset the timer for the third loop, save settings
     timerAlarmDisable(clear_state_timer);
   }
+  delay(30); // needed to make the LED pulse
 }
