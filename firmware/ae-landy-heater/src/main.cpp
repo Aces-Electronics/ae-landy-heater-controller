@@ -97,12 +97,12 @@ void recvMsg(uint8_t *data, size_t len){
     d += char(data[i]);
   }
   WebSerial.println(d);
-  if (d == "0")
+  if (d == "1")
   {
     digitalWrite(windscreen, LOW); // low is on
     WebSerial.println("Turning outputs ON!");
   }
-  else if (d == "1")
+  else if (d == "0")
   {
     digitalWrite(windscreen, HIGH); // low is on
     WebSerial.println("Turning outputs OFF!");
