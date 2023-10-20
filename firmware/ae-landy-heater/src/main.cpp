@@ -13,8 +13,10 @@
 bool debug = true; // turns ap mode on
 
 //const char* ssid = "ae-update";
-const char* ssid = "ShelveNET";
-const char* password = "buttpiratry";
+//const char* ssid = "ShelveNET";
+//const char* password = "buttpiratry";
+const char* ssid = "vodafoneC230";
+const char* password = "HAHMLY8BTD";
 
 const int windscreen = 3; // 0.2: 10, 0.1: 3
 //const int lMirror = -1; // 0.2: 6, 0.1: 3
@@ -89,6 +91,22 @@ void IRAM_ATTR onTimer2() { // ouput timeout
   autoTimeout = true;
 }
 
+String getValue(String data, char separator, int index)
+{
+    int found = 0;
+    int strIndex[] = { 0, -1 };
+    int maxIndex = data.length() - 1;
+
+    for (int i = 0; i <= maxIndex && found <= index; i++) {
+        if (data.charAt(i) == separator || i == maxIndex) {
+            found++;
+            strIndex[0] = strIndex[1] + 1;
+            strIndex[1] = (i == maxIndex) ? i+1 : i;
+        }
+    }
+    return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
 /* Message callback of WebSerial */
 void recvMsg(uint8_t *data, size_t len){
   WebSerial.println("Received Data...");
@@ -97,6 +115,20 @@ void recvMsg(uint8_t *data, size_t len){
     d += char(data[i]);
   }
   WebSerial.println(d);
+  
+  if (d.indexOf("manual") > -1)
+  {
+    autoMode = 0; // setmode to manual
+    WebSerial.print("Mode set to Manual (auto-timeout off)!");
+  }
+  else if (d.indexOf("auto") > -1)
+  {
+    autoMode = 1; // setmode to manual
+    onTime = getValue(d, ',', 1).toInt();
+    WebSerial.printf("Auto mode timer set for %i minutes...\n", onTime);
+  }
+
+
   if (d == "1")
   {
     digitalWrite(windscreen, LOW); // low is on
