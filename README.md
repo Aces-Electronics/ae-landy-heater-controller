@@ -9,8 +9,8 @@
 
 # TOC:
 1. <a href="#goals">Goals</a>
-1. <a href="#current-states">Current States</a>
-   - <a href="#reario-screen">RearIO: Screen</a>
+1. <a href="#JonoTron-3000-v0.2">Current PCB Design</a>
+1. <a href="#JonoTron-3000-v0.1">Previous PCB Design</a>
 1. <a href="#where-to-buy">Where to Buy</a>
 1. <a href="#support">Support</a>
 ---
@@ -37,7 +37,7 @@ v0.2 renders:
 
 ![v0.2 Rear](.repo_files/v0_2/JonoBro_rear_v0_2.png)
 
-## JonoTron-3000 v0.1
+# JonoTron-3000 v0.1
 These first units have been used for circuit and load testing, and are not production ready. This is mainly due to the input and output polarities being accidently reversed. 
 
 They do handle 30A, though they do get hot. The boards were only made from one ounce copper as I thought there was no way that the boards would end up working on first spin. the v0.1 boards were used to thoroughly test the concept, write the software and do destructive testing.
