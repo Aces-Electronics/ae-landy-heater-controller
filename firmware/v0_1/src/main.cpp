@@ -12,11 +12,13 @@
 
 bool debug = true; // turns ap mode on
 
-//const char* ssid = "ae-update";
-//const char* ssid = "ShelveNET";
-//const char* password = "buttpiratry";
-const char* ssid = "vodafoneC230";
-const char* password = "HAHMLY8BTD";
+const char* apssid = "ae-update";
+
+const char* ssid1 = "ShelveNET";
+const char* password1 = "buttpiratry";
+
+const char* ssid2 = "vodafoneC230";
+const char* password2 = "HAHMLY8BTD";
 
 const int windscreen = 3; // 0.2: 10, 0.1: 3
 //const int lMirror = -1; // 0.2: 6, 0.1: 3
@@ -170,21 +172,44 @@ void onOTAEnd(bool success) {
 }
 
 void wifiAPUpdate() {
-  Serial.println("Updating firmware, switch off heaters...");
+  Serial.println("Enabling WiFi for configuration updates, switching off heaters...");
   //digitalWrite(lMirror, HIGH); // low is on
   //digitalWrite(rMirror, HIGH); // low is on
   digitalWrite(windscreen, HIGH); // low is on
 
-  //WiFi.mode(WIFI_AP);
-  //WiFi.softAP(ssid);
+  // try and connect to network 1
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  //WiFi.softAP(ssid);
-  //IPAddress IP = WiFi.softAPIP();
-  IPAddress IP = WiFi.localIP();
-  Serial.print("ae-update AP IP address: ");
-  Serial.println(IP);
-  Serial.println("WebSerial is accessible at /webserial in browser");
+  WiFi.begin(ssid1, password1);
+  // wait 5 seconds for connection:
+  delay(5000);
+
+  Serial.print("First connected state: ");
+  Serial.println(WL_CONNECTED);
+  // try and connect to network 2, if required
+  if (WL_CONNECTED != 3)
+  {
+    Serial.print("Attempting to connect to known WiFi networks...");
+    WiFi.begin(ssid2, password2);
+    // wait 5 seconds for connection:
+    delay(5000);
+  }
+
+  Serial.print("Second connected state: ");
+  Serial.println(WL_CONNECTED);
+
+  if (WL_CONNECTED == 3)
+  {
+    IPAddress IP = WiFi.localIP();
+    Serial.print("Connected to WiFi network with the following IP: ");
+    Serial.println(IP);
+  }
+  else
+  {
+    WiFi.softAP(apssid);
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("Couldn't connect to home WiFi, enabling AP with the following IP: ");
+    Serial.println(IP);
+  }
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->redirect("/update");
