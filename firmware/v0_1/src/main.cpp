@@ -18,12 +18,24 @@ const char* password1 = "buttpiratry";
 const char* ssid2 = "vodafoneC230";
 const char* password2 = "HAHMLY8BTD";
 
-const int windscreen = 3; // 0.2: 10, 0.1: 3
-//const int lMirror = -1; // 0.2: 6, 0.1: 3
-//const int rMirror = -1; // 0.2: 7, 0.1: 3
-const int vIn = 1; // 1
-const int sysLED = 4; // 4
-const int onSwitch = 5; // 5
+#define TRACBOX 1
+
+#ifdef TRACBOX
+  const int windscreen = 2; // 0.2: 10, 0.1: 3
+  //const int lMirror = -1; // 0.2: 6, 0.1: 3
+  //const int rMirror = -1; // 0.2: 7, 0.1: 3
+  const int vIn = 32; // 1
+  const int sysLED = 13; // 4
+  const int onSwitch = 34; // 5
+#else
+  const int windscreen = 3; // 0.2: 10, 0.1: 3
+  //const int lMirror = -1; // 0.2: 6, 0.1: 3
+  //const int rMirror = -1; // 0.2: 7, 0.1: 3
+  const int vIn = 1; // 1
+  const int sysLED = 4; // 4
+  const int onSwitch = 5; // 5
+#endif
+
 const int numReadings = 100; // ADC samples (of inputVoltage) per poll
 
 int brightness = 20;  // how bright the sysLED is
@@ -170,32 +182,28 @@ void onOTAEnd(bool success) {
 }
 
 void wifiAPUpdate() {
-  Serial.println("Enabling WiFi for configuration updates, switching off heaters...");
+  //Serial.println("Enabling WiFi for configuration updates, switching off heaters...");
   //digitalWrite(lMirror, HIGH); // low is on
   //digitalWrite(rMirror, HIGH); // low is on
-  digitalWrite(windscreen, HIGH); // low is on
+  //digitalWrite(windscreen, HIGH); // low is on
 
   // try and connect to network 1
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid1, password1);
   // wait 5 seconds for connection:
   delay(5000);
-
-  Serial.print("First connected state: ");
-  Serial.println(WL_CONNECTED);
+  
   // try and connect to network 2, if required
-  if (WL_CONNECTED != 3)
+  if (WiFi.isConnected() == 0)
   {
     Serial.print("Attempting to connect to known WiFi networks...");
+    WiFi.disconnect();
     WiFi.begin(ssid2, password2);
     // wait 5 seconds for connection:
     delay(5000);
   }
 
-  Serial.print("Second connected state: ");
-  Serial.println(WL_CONNECTED);
-
-  if (WL_CONNECTED == 3)
+  if (WiFi.isConnected() == 1)
   {
     IPAddress IP = WiFi.localIP();
     Serial.print("Connected to WiFi network with the following IP: ");
@@ -203,6 +211,7 @@ void wifiAPUpdate() {
   }
   else
   {
+    WiFi.disconnect();
     WiFi.softAP(apssid);
     IPAddress IP = WiFi.softAPIP();
     Serial.print("Couldn't connect to home WiFi, enabling AP with the following IP: ");
