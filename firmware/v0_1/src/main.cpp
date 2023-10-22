@@ -1,37 +1,10 @@
-/**
- * IotWebConf03CustomParameters.ino -- IotWebConf is an ESP8266/ESP32
- *   non blocking WiFi/AP web configuration library for Arduino.
- *   https://github.com/prampec/IotWebConf 
- *
- * Copyright (C) 2020 Balazs Kelemen <prampec+arduino@gmail.com>
- *
- * This software may be modified and distributed under the terms
- * of the MIT license.  See the LICENSE file for details.
- */
-
-/**
- * Example: Custom parameters
- * Description:
- *   In this example it is shown how to attach your custom parameters
- *   to the config portal. Your parameters will be maintained by 
- *   IotWebConf. This means, they will be loaded from/saved to EEPROM,
- *   and will appear in the config portal.
- *   Note the configSaved and formValidator callbacks!
- *   (See previous examples for more details!)
- * 
- * Hardware setup for this example:
- *   - An LED is attached to LED_BUILTIN pin with setup On=LOW.
- *   - [Optional] A push button is attached to pin D2, the other leg of the
- *     button should be attached to GND.
- */
-
 #include <IotWebConf.h>
 #include <IotWebConfUsing.h> // This loads aliases for easier class names.
 
-// -- Initial name of the Thing. Used e.g. as SSID of the own Access Point.
-const char thingName[] = "ae_update";
+// -- Initial name of the Heater Controller. Used e.g. as SSID of the own Access Point.
+const char wifiInitialApName[] = "ae_update";
 
-// -- Initial password to connect to the Thing, when it creates an own Access Point.
+// -- Initial password to connect to the Heater Controller, when it creates an own Access Point.
 const char wifiInitialApPassword[] = "ae_update";
 
 #define STRING_LEN 128
@@ -60,7 +33,7 @@ WebServer server(80);
 
 char intParamValue[NUMBER_LEN];
 
-IotWebConf iotWebConf(thingName, &dnsServer, &server, wifiInitialApPassword, CONFIG_VERSION);
+IotWebConf iotWebConf(wifiInitialApName, &dnsServer, &server, wifiInitialApPassword, CONFIG_VERSION);
 // -- You can also use namespace formats e.g.: iotwebconf::TextParameter
 IotWebConfParameterGroup group1 = IotWebConfParameterGroup("group1", "Controller Configuration:");
 IotWebConfNumberParameter intParam = IotWebConfNumberParameter("Heater timeout (60 minutes max)", "intParam", intParamValue, NUMBER_LEN, "10", "0..60", "min='0' max='60' step='1'");
