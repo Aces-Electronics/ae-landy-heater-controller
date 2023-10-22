@@ -1,594 +1,140 @@
-#include <Arduino.h>
-#include <ElegantOTA.h>
-#include <nvs_flash.h>
-#include <Preferences.h>
-#include <CircularBuffer.h>
-#include <esp_now.h>
-#include <ESPAsyncWebServer.h>
-#include <WebSerial.h>
+/**
+ * IotWebConf03CustomParameters.ino -- IotWebConf is an ESP8266/ESP32
+ *   non blocking WiFi/AP web configuration library for Arduino.
+ *   https://github.com/prampec/IotWebConf 
+ *
+ * Copyright (C) 2020 Balazs Kelemen <prampec+arduino@gmail.com>
+ *
+ * This software may be modified and distributed under the terms
+ * of the MIT license.  See the LICENSE file for details.
+ */
 
+/**
+ * Example: Custom parameters
+ * Description:
+ *   In this example it is shown how to attach your custom parameters
+ *   to the config portal. Your parameters will be maintained by 
+ *   IotWebConf. This means, they will be loaded from/saved to EEPROM,
+ *   and will appear in the config portal.
+ *   Note the configSaved and formValidator callbacks!
+ *   (See previous examples for more details!)
+ * 
+ * Hardware setup for this example:
+ *   - An LED is attached to LED_BUILTIN pin with setup On=LOW.
+ *   - [Optional] A push button is attached to pin D2, the other leg of the
+ *     button should be attached to GND.
+ */
 
-bool debug = true; // turns ap mode on
+#include <IotWebConf.h>
+#include <IotWebConfUsing.h> // This loads aliases for easier class names.
 
-const char* apssid = "ae-update";
+// -- Initial name of the Thing. Used e.g. as SSID of the own Access Point.
+const char thingName[] = "ae_update";
 
-const char* ssid1 = "ShelveNET";
-const char* password1 = "buttpiratry";
+// -- Initial password to connect to the Thing, when it creates an own Access Point.
+const char wifiInitialApPassword[] = "ae_update";
 
-const char* ssid2 = "vodafoneC230";
-const char* password2 = "HAHMLY8BTD";
+#define STRING_LEN 128
+#define NUMBER_LEN 32
 
-#define TRACBOX 1
+// -- Configuration specific key. The value should be modified if config structure was changed.
+#define CONFIG_VERSION "40 beers deep v2"
 
-#ifdef TRACBOX
-  const int windscreen = 2; // 0.2: 10, 0.1: 3
-  //const int lMirror = -1; // 0.2: 6, 0.1: 3
-  //const int rMirror = -1; // 0.2: 7, 0.1: 3
-  const int vIn = 32; // 1
-  const int sysLED = 13; // 4
-  const int onSwitch = 34; // 5
-#else
-  const int windscreen = 3; // 0.2: 10, 0.1: 3
-  //const int lMirror = -1; // 0.2: 6, 0.1: 3
-  //const int rMirror = -1; // 0.2: 7, 0.1: 3
-  const int vIn = 1; // 1
-  const int sysLED = 4; // 4
-  const int onSwitch = 5; // 5
-#endif
+// -- When CONFIG_PIN is pulled to ground on startup, the Thing will use the initial
+//      password to buld an AP. (E.g. in case of lost password)
+#define CONFIG_PIN 34
 
-const int numReadings = 100; // ADC samples (of inputVoltage) per poll
+// -- Status indicator pin.
+//      First it will light up (kept LOW), on Wifi connection it will blink,
+//      when connected to the Wifi it will turn off (kept HIGH).
+#define STATUS_PIN 13
 
-int brightness = 20;  // how bright the sysLED is
-int fadeAmount = 5;  // how many points to fade the sysLED by
-int onTime; // -1 manual/unconfigured
-int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
-int readings[numReadings]; 
-int readIndex = 0;
-int lastOnSwitchState = 0;
-int settingsLoopCounter = 0;
+// -- Method declarations.
+void handleRoot();
+// -- Callback methods.
+void configSaved();
+bool formValidator(iotwebconf::WebRequestWrapper* webRequestWrapper);
 
-float inputVoltage; // device input voltage, used to know when not to enable the heater
+DNSServer dnsServer;
+WebServer server(80);
 
-bool updateEnable = false; // stores whether or not to enable WiFI AP for the purposes of updating the firmware
-bool updateRunning = false; // stores whether or not the AP has been started
-bool onSwitchState = 0; // stores the on switch state, set to 1 (off) 
-bool eventTimerExpired = 0; // stores the state of the event timer
-bool readyToSetMode = 0; // stores whether or not a change of modes is required
-bool needToSavePreferences = 0; // stores whether or not to update preferences, for use in the main loop
-bool needToProcessSwitchEvents = 0; // stores whether or not to proces an interrupt driven switch event
-bool disableTasks = 0; // stores the state for when the device is in update mode
-bool autoMode = 1; // stores the manual or auto run state
-bool autoTimeout = 0; // stores the state of the autoTimeout feature
+char intParamValue[NUMBER_LEN];
 
-const float r1 = 13000.0f; // R1 in ohm, 13k
-const float r2 = 2200.0f; // R2 in ohm, 2.2k
-float vRefScale = (3.0f / 4096.0f) * ((r1 + r2) / r2); // gives us the voltage per LSB (0.005060369318)
-
-long total = 0;
-long loopCounter = 0;
-long int t1 = 0;
-long int t2 = 0;
-
-char serial_input_char; // stores the char from inbound uart
-#define MAX_MESSAGE 30
-
-unsigned long newtime = 0;
-unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay = 150;    // the debounce time; increase if the output flickers
-
-hw_timer_t *clear_state_timer = NULL;
-hw_timer_t *output_enable_timer = NULL;
-
-Preferences preferences;
-
-AsyncWebServer server(80);
-unsigned long ota_progress_millis = 0;
-
-CircularBuffer<float, 200> buffer;
-
-// REPLACE WITH THE MAC Address of your receiver 
-uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-// Variable to store if sending data was successful
-String success;
-
-void IRAM_ATTR onTimer1() { // switch input timeout
-  eventTimerExpired = true;
-}
-
-void IRAM_ATTR onTimer2() { // ouput timeout
-  digitalWrite(windscreen, HIGH); // high is off
-  timerRestart(output_enable_timer); // reset the counter for next time
-  timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
-  autoTimeout = true;
-}
-
-String getValue(String data, char separator, int index)
+IotWebConf iotWebConf(thingName, &dnsServer, &server, wifiInitialApPassword, CONFIG_VERSION);
+// -- You can also use namespace formats e.g.: iotwebconf::TextParameter
+IotWebConfParameterGroup group1 = IotWebConfParameterGroup("group1", "Controller Configuration:");
+IotWebConfNumberParameter intParam = IotWebConfNumberParameter("Heater timeout (60 minutes max)", "intParam", intParamValue, NUMBER_LEN, "10", "0..60", "min='0' max='60' step='1'");
+void setup() 
 {
-    int found = 0;
-    int strIndex[] = { 0, -1 };
-    int maxIndex = data.length() - 1;
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println("Starting up...");
 
-    for (int i = 0; i <= maxIndex && found <= index; i++) {
-        if (data.charAt(i) == separator || i == maxIndex) {
-            found++;
-            strIndex[0] = strIndex[1] + 1;
-            strIndex[1] = (i == maxIndex) ? i+1 : i;
-        }
-    }
-    return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+  group1.addItem(&intParam);
+
+  iotWebConf.setStatusPin(STATUS_PIN);
+  iotWebConf.setConfigPin(CONFIG_PIN);
+  iotWebConf.addParameterGroup(&group1);
+  iotWebConf.setConfigSavedCallback(&configSaved);
+  iotWebConf.setFormValidator(&formValidator);
+
+  // -- Initializing the configuration.
+  iotWebConf.init();
+
+  // -- Set up required URL handlers on the web server.
+  server.on("/", handleRoot);
+  server.on("/config", []{ iotWebConf.handleConfig(); });
+  server.onNotFound([](){ iotWebConf.handleNotFound(); });
+
+  Serial.println("Ready.");
 }
 
-/* Message callback of WebSerial */
-void recvMsg(uint8_t *data, size_t len){
-  WebSerial.println("Received Data...");
-  String d = "";
-  for(int i=0; i < len; i++){
-    d += char(data[i]);
-  }
-  WebSerial.println(d);
-  
-  if (d.indexOf("manual") > -1)
-  {
-    autoMode = 0; // setmode to manual
-    WebSerial.print("Mode set to Manual (auto-timeout off)!");
-  }
-  else if (d.indexOf("auto") > -1)
-  {
-    autoMode = 1; // setmode to manual
-    onTime = getValue(d, ',', 1).toInt();
-    WebSerial.printf("Auto mode timer set for %i minutes...\n", onTime);
-  }
-
-
-  if (d == "1")
-  {
-    digitalWrite(windscreen, LOW); // low is on
-    WebSerial.println("Turning outputs ON!");
-  }
-  else if (d == "0")
-  {
-    digitalWrite(windscreen, HIGH); // low is on
-    WebSerial.println("Turning outputs OFF!");
-  }
-}
-
-void onOTAStart() {
-  // Log when OTA has started
-  Serial.println("OTA update started!");
-  WebSerial.println("OTA update started!");
-  // <Add your own code here>
-}
-
-void onOTAProgress(size_t current, size_t final) {
-  // Log every 1 second
-  if (millis() - ota_progress_millis > 1000) {
-    ota_progress_millis = millis();
-    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
-    WebSerial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
-  }
-}
-
-void onOTAEnd(bool success) {
-  // Log when OTA has finished
-  if (success) {
-    Serial.println("OTA update finished successfully!");
-    WebSerial.println("OTA update finished successfully!");
-  } else {
-    Serial.println("There was an error during OTA update!");
-    WebSerial.println("There was an error during OTA update!");
-  }
-  // <Add your own code here>
-}
-
-void wifiAPUpdate() {
-  //Serial.println("Enabling WiFi for configuration updates, switching off heaters...");
-  //digitalWrite(lMirror, HIGH); // low is on
-  //digitalWrite(rMirror, HIGH); // low is on
-  //digitalWrite(windscreen, HIGH); // low is on
-
-  // try and connect to network 1
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid1, password1);
-  // wait 5 seconds for connection:
-  delay(5000);
-  
-  // try and connect to network 2, if required
-  if (WiFi.isConnected() == 0)
-  {
-    Serial.print("Attempting to connect to known WiFi networks...");
-    WiFi.disconnect();
-    WiFi.begin(ssid2, password2);
-    // wait 5 seconds for connection:
-    delay(5000);
-  }
-
-  if (WiFi.isConnected() == 1)
-  {
-    IPAddress IP = WiFi.localIP();
-    Serial.print("Connected to WiFi network with the following IP: ");
-    Serial.println(IP);
-  }
-  else
-  {
-    WiFi.disconnect();
-    WiFi.softAP(apssid);
-    IPAddress IP = WiFi.softAPIP();
-    Serial.print("Couldn't connect to home WiFi, enabling AP with the following IP: ");
-    Serial.println(IP);
-  }
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->redirect("/update");
-  });
-
-  ElegantOTA.begin(&server);    // start ElegantOTA
-  WebSerial.begin(&server);     // start webserial
-  WebSerial.msgCallback(recvMsg);
-  ElegantOTA.onStart(onOTAStart);
-  ElegantOTA.onProgress(onOTAProgress);
-  ElegantOTA.onEnd(onOTAEnd);
-  server.begin();
-  Serial.println("HTTP server started");
-  updateEnable = true;
-}
-
-void pulseSysLED() 
-{
-  // set the brightness of pin 9:
-  analogWrite(sysLED, brightness);
-
-  // change the brightness for next time through the loop:
-  brightness = brightness + fadeAmount;
-
-  // reverse the direction of the fading at the ends of the fade:
-  if (brightness <= 0 || brightness >= 255) {
-    fadeAmount = -fadeAmount;
-  }
-}
-
-void switchEvent() // toggle switch in cabin
-{
-  needToProcessSwitchEvents = true; // tell the main loop that a switch event has happened
-  if (onSwitchState)
-  {
-    t1 = millis();
-    timerRestart(clear_state_timer);
-    timerAlarmEnable(clear_state_timer);
-  }
-}
-
-long smooth()
-{ /* function smooth */
-  ////Perform average on sensor readings
-  long average;
-  // subtract the last reading:
-  total = total - readings[readIndex];
-  // read the sensor:
-  readings[readIndex] = analogRead(vIn);
-  // add value to total:
-  total = total + readings[readIndex];
-  // handle index
-  readIndex = readIndex + 1;
-  if (readIndex >= numReadings)
-  {
-    readIndex = 0;
-  }
-  // calculate the average:
-  average = total / numReadings;
-
-  return average;
-}
-
-void checkVoltage()
-{
-  buffer.push(smooth() * (vRefScale * 1.01)); // fill the circular buffer for super smooth values
-
-  if (millis() - newtime >= 1000)
-  {
-    newtime = millis();
-    float avg = 0.0;
-    // the following ensures using the right type for the index variable
-    using index_t = decltype(buffer)::index_t;
-    for (index_t i = 0; i < buffer.size(); i++)
-    {
-      avg += buffer[i] / buffer.size();
-    }
-
-    inputVoltage = avg;
-    Serial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
-    WebSerial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
-
-    
-    if (inputVoltage < 13.00) // I've plucked 13v from fat air
-    {
-      Serial.println("Input voltage too low to turn on heater!");
-      WebSerial.println("Input voltage too low to turn on heater!");
-      digitalWrite(windscreen, HIGH); // high is off
-      timerRestart(output_enable_timer); // reset the counter for next time
-      timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
-      Serial.println("Outputs and timer disabled!");
-      WebSerial.println("Outputs and timer disabled!");
-    }
-  }
-}
-
-void processSwitchEvents()
-{
-  if ((millis() - lastDebounceTime) > debounceDelay) 
-  {
-    if (onSwitchState)
-    {
-      stateChangeCounter++;
-      Serial.println("Looks like switch is on...");
-      WebSerial.println("Looks like switch is on...");
-      if (inputVoltage >= 13.00) // I've plucked 13v from fat air
-      {
-        if ((!readyToSetMode) && (settingsLoopCounter == 0))
-        {
-          if (buffer.size() > 199)
-          {
-            //logic is reversed, 0/false is on
-            if ((autoMode) && (!autoTimeout)) // auto mode, timer not expired
-            {
-              Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
-              WebSerial.printf("Auto mode timer running for %i minutes...\n", onTime);
-              //digitalWrite(lMirror, LOW); // low is on
-              //digitalWrite(rMirror, LOW); // low is on
-              digitalWrite(windscreen, LOW); // low is on
-              timerAlarmEnable(output_enable_timer); // enable the output timeout timer
-            }
-            else if ((!autoMode) && (autoTimeout)) // manual mode
-            {
-              Serial.println("Manual mode, switch on...");
-              WebSerial.println("Manual mode, switch on...");
-              //digitalWrite(lMirror, LOW); // low is on
-              //digitalWrite(rMirror, LOW); // low is on
-              digitalWrite(windscreen, LOW); // low is on
-            }
-          }
-          else
-          {
-            Serial.println("Waiting for the input voltage to stabilise...");
-            WebSerial.println("Waiting for the input voltage to stabilise...");
-          }
-        }
-      }
-    }
-    else
-    {
-      Serial.println("Looks like switch is off...");
-      WebSerial.println("Looks like switch is off...");
-      // turn off the outputs
-      digitalWrite(windscreen, HIGH); // high is off
-      timerRestart(output_enable_timer); // reset the counter for next time
-      timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
-      Serial.println("Outputs and timer disabled!");
-      WebSerial.println("Outputs and timer disabled!");
-    }
-  }
-  else 
-  {
-    Serial.println("Debounced onSwitchEvents!");
-    WebSerial.println("Debounced onSwitchEvents!");
-  }
-  lastDebounceTime = millis();
-  needToProcessSwitchEvents = false;
-}
-
-void loadPreferences()
-{
-  if (preferences.begin("ae-landy-heater", false))
-  {
-    if (preferences.getBool("configured"))
-    {
-      onTime = preferences.getInt("onTime");
-      autoMode = preferences.getBool("autoMode");
-      Serial.print("Device has been configured!");
-      if (!autoMode)
-      {
-        Serial.print("Device is running in manual mode!");
-      } 
-      else
-      {
-        Serial.printf("Device is running in auto mode and on for %i minutes", onTime);
-      }
-    }
-    else
-    {
-      preferences.putBool("autoMode", true);
-      preferences.putInt("onTime", 10);
-      preferences.putBool("configured", true);
-    }
-  }
-  preferences.end();
-}
-
-void savePreferences()
-{  
-  Serial.println("saving settings to flash");
-  preferences.begin("ae-landy-heater", false);
-  preferences.putInt("onTime", onTime);
-  preferences.end();
-  needToSavePreferences = false;
-}
-
-void factoryReset()
-{
-  nvs_flash_erase(); // erase the NVS partition.
-  nvs_flash_init();  // initialize the NVS partition.
-  delay(500);
-  ESP.restart(); // reset to clear memory
-}
-
-void processEventData()
-{
-  Serial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
-  Serial.println(stateChangeCounter);
-  Serial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
-  Serial.printf("ModeResetCounter = %i \n\n", t2-t1);
-
-  WebSerial.printf("stateChangeCounter has been set high %d times\n", stateChangeCounter);
-  WebSerial.println(stateChangeCounter);
-  WebSerial.printf("SettingsLoopCounter = %i \n\n", settingsLoopCounter);
-  WebSerial.printf("ModeResetCounter = %i \n\n", t2-t1);
-
-
-  settingsLoopCounter++; // set to 1 for first loop, timer from switch toggled on
-  if ((stateChangeCounter == 3) && (settingsLoopCounter == 1))
-  {
-    stateChangeCounter = 0; // reset counter to 0 for the second loop
-    updateEnable = true; // enable WiFi AP
-    Serial.println("AP enabled for firmware update!\n");
-    WebSerial.println("AP enabled for firmware update!\n");
-    eventTimerExpired = false;
-    timerAlarmDisable(clear_state_timer);
-  }
-  if ((stateChangeCounter == 2) && (settingsLoopCounter == 1))
-  {
-    Serial.println("Switch has been toggled twice, entering into mode settings...");
-    WebSerial.println("Switch has been toggled twice, entering into mode settings...");
-    stateChangeCounter = 0; // reset counter to 0 for the second loop
-    Serial.println("Soft resetting loop counters...");
-    WebSerial.println("Soft resetting loop counters...");
-  }
-  if (settingsLoopCounter == 2)
-  {
-    Serial.println("Mode is being set...");
-    WebSerial.println("Mode is being set...");
-    onTime = stateChangeCounter;
-    if (onTime == 0) // switch state to manual
-    {
-      onTime = -1;
-      autoMode = 0;
-      Serial.println("Mode is set to manual!");
-      WebSerial.println("Mode is set to manual!");
-    }
-    else
-    {
-      Serial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
-      WebSerial.printf("Mode is set to Auto with a timeout of %i minutes!\n"), stateChangeCounter;
-    }
-    needToSavePreferences = true;
-    stateChangeCounter = 0;
-    timerAlarmDisable(clear_state_timer);
-    Serial.println("Soft resetting loop counters...");
-    WebSerial.println("Soft resetting loop counters...");
-  }
-  eventTimerExpired = false;
-}
-
-void setup() {
-  // initialise serial for debugging, uart over USB
-  Serial.begin(9600);
-
-  // initialise digital pins as an output.
-  pinMode(windscreen, OUTPUT);
-  //pinMode(lMirror, INPUT_PULLDOWN);
-  //pinMode(rMirror, INPUT_PULLDOWN);
-  pinMode(vIn, INPUT);
-  pinMode(sysLED, OUTPUT);
-  pinMode(onSwitch, INPUT_PULLUP);
-
-  // set outputs to off (high = off)
-  digitalWrite(windscreen, HIGH);
-  //digitalWrite(lMirror, HIGH);
-  //digitalWrite(rMirror, HIGH);
-
-  loadPreferences();
-  newtime = millis();
-
-  // detect switch events
-  attachInterrupt(digitalPinToInterrupt(onSwitch), switchEvent, CHANGE);
-
-  // setup state change counter wipe, to timout enter settings changes/modes
-  clear_state_timer = timerBegin(0, 80, true);
-  timerAttachInterrupt(clear_state_timer, &onTimer1, true);
-  timerAlarmWrite(clear_state_timer, 5000000, true); // 5 seconds
-
-  output_enable_timer = timerBegin(1, 80, true);
-  timerAttachInterrupt(output_enable_timer, &onTimer2, true);
-  timerAlarmWrite(output_enable_timer, 600000000, true); // 10 minutes
-
-  //ToDo: set the preferences, read and set the timer
-
-  Serial.println("\n\nSetup done");
-}
-
-// the loop function runs over and over again forever
 void loop() 
 {
-  if ((updateEnable) || (debug))
+  // -- doLoop should be called as frequently as possible.
+  iotWebConf.doLoop();
+}
+
+/**
+ * Handle web requests to "/" path.
+ */
+void handleRoot()
+{
+  // -- Let IotWebConf test and handle captive portal requests.
+  if (iotWebConf.handleCaptivePortal())
   {
-    if (updateRunning)
-    {
-      ElegantOTA.loop();
-    }
-    else
-    {
-      wifiAPUpdate();
-    }
-    updateRunning = true;
+    // -- Captive portal request were already served.
+    return;
   }
+  String s = "<!DOCTYPE html><html lang=\"en\"><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/>";
+  s += "<title>AE Heater COntroller</title></head><body>Current settings:";
+  s += "<ul>";
+  s += "<li>Heater timout (minutes): ";
+  s += atoi(intParamValue);
+  s += "</ul>";
+  s += "Go to <a href='config'>configure page</a> to change values.";
+  s += "</body></html>\n";
 
-  t2 = millis();
+  server.send(200, "text/html", s);
+}
 
-  if (needToProcessSwitchEvents)
+void configSaved()
+{
+  Serial.println("Configuration was updated.");
+}
+
+bool formValidator(iotwebconf::WebRequestWrapper* webRequestWrapper)
+{
+  Serial.println("Validating form.");
+  bool valid = true;
+
+/*
+  int l = webRequestWrapper->arg(stringParam.getId()).length();
+  if (l < 3)
   {
-    onSwitchState = !digitalRead(onSwitch); // logic is inverted
-    processSwitchEvents();
-  }  
-
-  // check the input voltage, control the heaters
-  checkVoltage();
-
-  // pulse the sysLED
-  pulseSysLED();
-
-  // save preferences, if required
-  if (needToSavePreferences)
-  {
-    savePreferences();
+    stringParam.errorMessage = "Please provide at least 3 characters for this test!";
+    valid = false;
   }
-
-  if (eventTimerExpired)
-  {
-    processEventData();
-  }
-
-  static char buffer[MAX_MESSAGE];
-  static unsigned char index = 0;
-
-  while (Serial.available() > 0) {
-    serial_input_char = Serial.read();
-    if (serial_input_char == '\r') {
-      Serial.print("You entered: ");
-      Serial.println(buffer);
-      buffer[0] = 0;
-      index = 0;
-    } else {        
-      if (index < MAX_MESSAGE-1) {
-        buffer[index++] = serial_input_char;
-        buffer[index] = 0;
-      }
-    }
-  } 
-
-  if (autoTimeout)
-  {
-    Serial.println("Auto timeout has switched off outputs...");
-    WebSerial.println("Auto timeout has switched off outputs...");
-  }
-
-  if ((t2-t1 > 10000) && (eventTimerExpired)) // timeout mode setting after 10 seconds
-  {
-    readyToSetMode = false;
-    stateChangeCounter = 0;
-    settingsLoopCounter = 0;
-    Serial.println("Hard resetting loop counters and states: Settings timeout!\n");
-    WebSerial.println("Hard resetting loop counters and states: Settings timeout!\n");
-    t1 = millis(); // reset the timer for the third loop, save settings
-    timerAlarmDisable(clear_state_timer);
-  }
-  delay(30); // needed to make the LED pulse
+*/
+  return valid;
 }
