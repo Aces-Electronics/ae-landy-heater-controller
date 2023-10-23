@@ -251,7 +251,7 @@ void setup() {
   wm.setMenu(menu,9); // custom menu array must provide length
 */
 
-  std::vector<const char *> menu = {"param","wifi","sep","update","sep","erase","restart","close"};
+  std::vector<const char *> menu = {"param","wifi","restart","close","sep","update","erase"};
   // std::vector<const char *> menu = {"custom","wifi","info","param","close","sep","erase","update","restart","exit"};
 
   wm.setMenu(menu); // custom menu, pass vector
