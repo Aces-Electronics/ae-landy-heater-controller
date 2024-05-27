@@ -279,6 +279,7 @@ void checkVoltage()
       WebSerial.println("System normal!");
     }
     adjustBrightness();
+    Serial.println(); // adds a space
   }
 }
 
@@ -582,5 +583,4 @@ void loop()
   
   // delay for the purposes of debouncing the switch
   delay(DELAY_TIME);
-  Serial.println(); // adds a space
 }
