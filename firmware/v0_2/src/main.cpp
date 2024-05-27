@@ -13,6 +13,9 @@
 
 bool debug = true; // turns ap mode on
 
+long previousMillis = 0;
+long interval = 5000;
+
 //const char* ssid = "ae-update";
 const char* ssid = "ShelveNET";
 const char* password = "buttpiratry";
@@ -31,7 +34,7 @@ int numPixels = 1;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
 
 // variables to control brightness levels
-int brightness = 200; 
+int brightness = 180; 
 int brightDirection = -10;
 
 // a pre-processor macro
@@ -155,8 +158,8 @@ void onOTAEnd(bool success) {
 
 void wifiAPUpdate() {
   Serial.println("Updating firmware, switch off heaters...");
-  //digitalWrite(lMirror, HIGH); // low is on
-  //digitalWrite(rMirror, HIGH); // low is on
+  digitalWrite(lMirror, HIGH); // low is on
+  digitalWrite(rMirror, HIGH); // low is on
   digitalWrite(windscreen, HIGH); // low is on
 
   //WiFi.mode(WIFI_AP);
@@ -198,7 +201,7 @@ void switchEvent() // toggle switch in cabin
 
 void adjustBrightness() {
   brightness = brightness + brightDirection;
-  if( brightness < 0 ) {
+  if( brightness < 5 ) {
      brightness = 0;
      brightDirection = -brightDirection;
   }
@@ -209,8 +212,8 @@ void adjustBrightness() {
 }
 
 long smooth()
-{ /* function smooth */
-  ////Perform average on sensor readings
+{ 
+  // perform average on sensor readings
   long average;
   // subtract the last reading:
   total = total - readings[readIndex];
@@ -232,55 +235,17 @@ long smooth()
 
 void checkVoltage()
 {
+
+  float avg = 0.0;
+
   buffer.push(smooth() * (vRefScale * 1.01)); // fill the circular buffer for super smooth values
-
-  if (millis() - newtime >= 1000)
+  // the following ensures using the right type for the index variable
+  using index_t = decltype(buffer)::index_t;
+  for (index_t i = 0; i < buffer.size(); i++)
   {
-    newtime = millis();
-    float avg = 0.0;
-    // the following ensures using the right type for the index variable
-    using index_t = decltype(buffer)::index_t;
-    for (index_t i = 0; i < buffer.size(); i++)
-    {
-      avg += buffer[i] / buffer.size();
-    }
-
-    inputVoltage = avg;
-    Serial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
-    WebSerial.printf("Input voltage is currently %0.2fV!\n", inputVoltage);
-
-    
-    if (inputVoltage < 13.00) // I've plucked 13v from fat air
-    {
-      Serial.println("Input voltage too low to turn on heater!");
-      WebSerial.println("Input voltage too low to turn on heater!");
-      digitalWrite(windscreen, HIGH); // high is off
-      timerRestart(output_enable_timer); // reset the counter for next time
-      timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
-      Serial.println("Outputs and timer disabled!");
-      WebSerial.println("Outputs and timer disabled!");
-
-      strip.setPixelColor(0, 255,0,0);
-      strip.setBrightness(brightness);  
-      strip.show();
-    }
-    else if (inputVoltage < 12.00) // battery is flat- problem...
-    {
-      Serial.println("Input voltage critically low!");
-      WebSerial.println("Input voltage critically low!");
-
-      strip.setPixelColor(0, 255,0,0);
-      strip.setBrightness(255);  // fully red and bright
-      strip.show();
-    }
-    else // alternator supplying power
-    {
-      Serial.println("System normal!");
-      WebSerial.println("System normal!");
-    }
-    adjustBrightness();
-    Serial.println(); // adds a space
+    avg += buffer[i] / buffer.size();
   }
+  inputVoltage = avg;
 }
 
 void processSwitchEvents()
@@ -292,7 +257,7 @@ void processSwitchEvents()
       stateChangeCounter++;
       Serial.println("Looks like switch is on...");
       WebSerial.println("Looks like switch is on...");
-      if (inputVoltage >= 13.00) // I've plucked 13v from fat air
+      if (inputVoltage >= 13.80) // I've plucked 13.8v from fat air
       {
         if ((!readyToSetMode) && (settingsLoopCounter == 0))
         {
@@ -303,8 +268,8 @@ void processSwitchEvents()
             {
               Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
               WebSerial.printf("Auto mode timer running for %i minutes...\n", onTime);
-              //digitalWrite(lMirror, LOW); // low is on
-              //digitalWrite(rMirror, LOW); // low is on
+              digitalWrite(lMirror, LOW); // low is on
+              digitalWrite(rMirror, LOW); // low is on
               digitalWrite(windscreen, LOW); // low is on
               timerAlarmEnable(output_enable_timer); // enable the output timeout timer
             }
@@ -312,8 +277,8 @@ void processSwitchEvents()
             {
               Serial.println("Manual mode, switch on...");
               WebSerial.println("Manual mode, switch on...");
-              //digitalWrite(lMirror, LOW); // low is on
-              //digitalWrite(rMirror, LOW); // low is on
+              digitalWrite(lMirror, LOW); // low is on
+              digitalWrite(rMirror, LOW); // low is on
               digitalWrite(windscreen, LOW); // low is on
             }
           }
@@ -457,9 +422,7 @@ void allOff() {
 // the activate function will set the pixel color, change the brightness level
 // and have a small delay
 void activate() {   
-  for( int i = 0; i < numPixels; i++ ) 
-     strip.setPixelColor(i, r,g,b);
-     
+  strip.setPixelColor(0, 0,0,255);   
   strip.setBrightness(brightness);  
   strip.show();
 }
@@ -470,8 +433,8 @@ void setup() {
 
   // initialise digital pins as an output.
   pinMode(windscreen, OUTPUT);
-  //pinMode(lMirror, INPUT_PULLDOWN);
-  //pinMode(rMirror, INPUT_PULLDOWN);
+  pinMode(lMirror, OUTPUT);
+  pinMode(rMirror, OUTPUT);
   pinMode(vIn, INPUT);
   pinMode(sysLEDPWR, OUTPUT);
   digitalWrite(sysLEDPWR, HIGH);
@@ -485,8 +448,8 @@ void setup() {
 
   // set outputs to off (high = off)
   digitalWrite(windscreen, HIGH);
-  //digitalWrite(lMirror, HIGH);
-  //digitalWrite(rMirror, HIGH);
+  digitalWrite(lMirror, HIGH);
+  digitalWrite(rMirror, HIGH);
 
   loadPreferences();
   newtime = millis();
@@ -504,13 +467,14 @@ void setup() {
   timerAlarmWrite(output_enable_timer, 600000000, true); // 10 minutes
 
   //ToDo: set the preferences, read and set the timer
-
+  newtime = millis();
   Serial.println("\n\nSetup done");
 }
 
 // the loop function runs over and over again forever
 void loop() 
 {
+
   if ((updateEnable) || (debug))
   {
     if (updateRunning)
@@ -546,20 +510,20 @@ void loop()
     processEventData();
   }
 
-  static char buffer[MAX_MESSAGE];
+  static char inputBuffer[MAX_MESSAGE];
   static unsigned char index = 0;
 
   while (Serial.available() > 0) {
     serial_input_char = Serial.read();
     if (serial_input_char == '\r') {
       Serial.print("You entered: ");
-      Serial.println(buffer);
-      buffer[0] = 0;
+      Serial.println(inputBuffer);
+      inputBuffer[0] = 0;
       index = 0;
     } else {        
       if (index < MAX_MESSAGE-1) {
-        buffer[index++] = serial_input_char;
-        buffer[index] = 0;
+        inputBuffer[index++] = serial_input_char;
+        inputBuffer[index] = 0;
       }
     }
   } 
@@ -580,7 +544,62 @@ void loop()
     t1 = millis(); // reset the timer for the third loop, save settings
     timerAlarmDisable(clear_state_timer);
   }
+
+  if (inputVoltage < 12.00) // I've plucked 13v from fat air
+  {
+    digitalWrite(windscreen, HIGH); // high is off
+    digitalWrite(lMirror, HIGH);
+    digitalWrite(rMirror, HIGH);
+    timerRestart(output_enable_timer); // reset the counter for next time
+    timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
+    strip.setPixelColor(0, 255,0,0);
+    brightness = 5;  // fully red and dull
+    
+  }
+  else if (inputVoltage < 13.00) // battery is flat- problem...
+  {
+    digitalWrite(windscreen, HIGH); // high is off
+    digitalWrite(lMirror, HIGH);
+    digitalWrite(rMirror, HIGH);
+    timerRestart(output_enable_timer); // reset the counter for next time
+    timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
+    strip.setPixelColor(0, 247,152,29);
+    brightness = 5;  // orange and brighter
+    //adjustBrightness();
+  } 
+  else if (inputVoltage >= 13.00)
+  {
+    strip.setPixelColor(0,0,255,0); // green 
+    brightness = 5;
+  }
+
+  // simple timer to send serial prints at less than the speed of light
+  unsigned long currentMillis = millis();
+  if(currentMillis - previousMillis > interval) {
+    if (inputVoltage < 13.80) // battery is flat- problem...
+    {
+      Serial.printf("Input voltage too low to turn on heater: %0.2fV!\n", inputVoltage);
+      WebSerial.printf("Input voltage too low to turn on heater: %0.2fV!\n", inputVoltage);
+      Serial.println("Outputs and timer disabled!\n");
+      WebSerial.println("Outputs and timer disabled!\n");
+    } 
+    else if (inputVoltage >= 13.80)
+    {
+      Serial.printf("System normal, running from the alternator: %0.2fV!\n", inputVoltage);
+      WebSerial.printf("System normal, running from the alternator: %0.2fV!\n\n", inputVoltage);
+    }
+    previousMillis = currentMillis;
+  }
+
+  if (buffer.size() < 200)
+  {
+    brightness = 5;
+    strip.setPixelColor(0,0,0,255); // blue 
+  } 
+
+  strip.setBrightness(brightness);  
+  strip.show();
   
-  // delay for the purposes of debouncing the switch
+  // delay for the purposes of debouncing the switch and allowing the NeoPixel to cycle colour/brightness
   delay(DELAY_TIME);
 }
