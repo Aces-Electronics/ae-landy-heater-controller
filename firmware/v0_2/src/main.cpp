@@ -40,11 +40,6 @@ int brightDirection = -10;
 // a pre-processor macro
 #define DELAY_TIME (10)
 
-// Global RGB values, change to suit your needs
-int r = 0;
-int g = 0;
-int b = 255;
-
 int onTime; // -1 manual/unconfigured
 int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
 int readings[numReadings]; 
@@ -296,6 +291,8 @@ void processSwitchEvents()
       WebSerial.println("Looks like switch is off...");
       // turn off the outputs
       digitalWrite(windscreen, HIGH); // high is off
+      digitalWrite(lMirror, HIGH); // high is off
+      digitalWrite(rMirror, HIGH); // high is off
       timerRestart(output_enable_timer); // reset the counter for next time
       timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
       Serial.println("Outputs and timer disabled!");
@@ -438,7 +435,7 @@ void setup() {
   pinMode(vIn, INPUT);
   pinMode(sysLEDPWR, OUTPUT);
   digitalWrite(sysLEDPWR, HIGH);
-  pinMode(onSwitch, INPUT_PULLUP);
+  pinMode(onSwitch, INPUT);
 
   strip.begin();  // initialize the strip
   strip.show();   // make sure it is visible
@@ -455,7 +452,7 @@ void setup() {
   newtime = millis();
 
   // detect switch events
-  attachInterrupt(digitalPinToInterrupt(onSwitch), switchEvent, CHANGE);
+  //attachInterrupt(digitalPinToInterrupt(onSwitch), switchEvent, CHANGE);
 
   // setup state change counter wipe, to timout enter settings changes/modes
   clear_state_timer = timerBegin(0, 80, true);
