@@ -8,6 +8,7 @@
 #include <ESPAsyncWebServer.h>
 #include <ElegantOTA.h>
 #include <WebSerial.h>
+#include <Adafruit_NeoPixel.h>
 
 
 bool debug = true; // turns ap mode on
@@ -16,16 +17,31 @@ bool debug = true; // turns ap mode on
 const char* ssid = "ShelveNET";
 const char* password = "buttpiratry";
 
-const int windscreen = 3; // 0.2: 10, 0.1: 3
-//const int lMirror = -1; // 0.2: 6, 0.1: 3
-//const int rMirror = -1; // 0.2: 7, 0.1: 3
+const int windscreen = 10; // WS MOSFET
+const int lMirror = 6; // LMR MOSFET
+const int rMirror = 7; // RMR MOSFET
 const int vIn = 1; // 1
-const int sysLED = 4; // 4
+const int sysLEDPWR = 3; // 3 NeoPixel power
+const int sysLED = 4; // 4 NeoPixel
 const int onSwitch = 5; // 5
 const int numReadings = 100; // ADC samples (of inputVoltage) per poll
 
-int brightness = 20;  // how bright the sysLED is
-int fadeAmount = 5;  // how many points to fade the sysLED by
+int neoPixelPin = sysLED;
+int numPixels = 1;
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
+
+// variables to control brightness levels
+int brightness = 200; 
+int brightDirection = -10;
+
+// a pre-processor macro
+#define DELAY_TIME (10)
+
+// Global RGB values, change to suit your needs
+int r = 0;
+int g = 0;
+int b = 255;
+
 int onTime; // -1 manual/unconfigured
 int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
 int readings[numReadings]; 
@@ -169,20 +185,6 @@ void wifiAPUpdate() {
   updateEnable = true;
 }
 
-void pulseSysLED() 
-{
-  // set the brightness of pin 9:
-  analogWrite(sysLED, brightness);
-
-  // change the brightness for next time through the loop:
-  brightness = brightness + fadeAmount;
-
-  // reverse the direction of the fading at the ends of the fade:
-  if (brightness <= 0 || brightness >= 255) {
-    fadeAmount = -fadeAmount;
-  }
-}
-
 void switchEvent() // toggle switch in cabin
 {
   needToProcessSwitchEvents = true; // tell the main loop that a switch event has happened
@@ -192,6 +194,18 @@ void switchEvent() // toggle switch in cabin
     timerRestart(clear_state_timer);
     timerAlarmEnable(clear_state_timer);
   }
+}
+
+void adjustBrightness() {
+  brightness = brightness + brightDirection;
+  if( brightness < 0 ) {
+     brightness = 0;
+     brightDirection = -brightDirection;
+  }
+  else if( brightness > 255 ) {
+     brightness = 255;
+     brightDirection = -brightDirection;
+  } 
 }
 
 long smooth()
@@ -245,7 +259,26 @@ void checkVoltage()
       timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
       Serial.println("Outputs and timer disabled!");
       WebSerial.println("Outputs and timer disabled!");
+
+      strip.setPixelColor(0, 255,0,0);
+      strip.setBrightness(brightness);  
+      strip.show();
     }
+    else if (inputVoltage < 12.00) // battery is flat- problem...
+    {
+      Serial.println("Input voltage critically low!");
+      WebSerial.println("Input voltage critically low!");
+
+      strip.setPixelColor(0, 255,0,0);
+      strip.setBrightness(255);  // fully red and bright
+      strip.show();
+    }
+    else // alternator supplying power
+    {
+      Serial.println("System normal!");
+      WebSerial.println("System normal!");
+    }
+    adjustBrightness();
   }
 }
 
@@ -414,17 +447,40 @@ void processEventData()
   eventTimerExpired = false;
 }
 
+// Turns all the NeoPixels off
+void allOff() {
+  strip.clear();    // this is a simpler way to turn all the pixels off
+  strip.show();
+}
+
+// the activate function will set the pixel color, change the brightness level
+// and have a small delay
+void activate() {   
+  for( int i = 0; i < numPixels; i++ ) 
+     strip.setPixelColor(i, r,g,b);
+     
+  strip.setBrightness(brightness);  
+  strip.show();
+}
+
 void setup() {
-  // initialise serial for debugging, uart over USB
-  Serial.begin(9600);
+  // initialise Serial for debugging, uart over USB
+  Serial.begin(115200);
 
   // initialise digital pins as an output.
   pinMode(windscreen, OUTPUT);
   //pinMode(lMirror, INPUT_PULLDOWN);
   //pinMode(rMirror, INPUT_PULLDOWN);
   pinMode(vIn, INPUT);
-  pinMode(sysLED, OUTPUT);
+  pinMode(sysLEDPWR, OUTPUT);
+  digitalWrite(sysLEDPWR, HIGH);
   pinMode(onSwitch, INPUT_PULLUP);
+
+  strip.begin();  // initialize the strip
+  strip.show();   // make sure it is visible
+  strip.clear();  // Initialize all pixels to 'off'
+
+  activate();
 
   // set outputs to off (high = off)
   digitalWrite(windscreen, HIGH);
@@ -478,9 +534,6 @@ void loop()
   // check the input voltage, control the heaters
   checkVoltage();
 
-  // pulse the sysLED
-  pulseSysLED();
-
   // save preferences, if required
   if (needToSavePreferences)
   {
@@ -526,5 +579,8 @@ void loop()
     t1 = millis(); // reset the timer for the third loop, save settings
     timerAlarmDisable(clear_state_timer);
   }
-  delay(30); // needed to make the LED pulse
+  
+  // delay for the purposes of debouncing the switch
+  delay(DELAY_TIME);
+  Serial.println(); // adds a space
 }
