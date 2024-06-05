@@ -3,23 +3,33 @@
 #include <Preferences.h>
 #include <CircularBuffer.hpp>
 #include <esp_now.h>
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ElegantOTA.h>
 #include <WebSerial.h>
 #include <Adafruit_NeoPixel.h>
+#include <ESPmDNS.h>
 
+#define debug // turns ap mode on in debug
 
-bool debug = true; // turns ap mode on
+#if defined debug
+ const char* ssid = "ae-update";
+ bool enable_debug = true;
+#else
+ const char* ssid = "ShelveNET";
+#endif
 
-long previousMillis = 0;
-long interval = 5000;
+WiFiManager wm;
 
-//const char* ssid = "ae-update";
-const char* ssid = "ShelveNET";
+unsigned int  timeout   = 120; // seconds to run for
+unsigned int  startTime = millis();
+bool portalRunning      = false;
+bool startAP            = false; // start AP and webserver if true, else start only webserver
+bool deviceConfigured   = false;
+
 const char* password = "buttpiratry";
-
 const int windscreen = 10; // WS MOSFET
 const int lMirror = 6; // LMR MOSFET
 const int rMirror = 7; // RMR MOSFET
@@ -28,7 +38,8 @@ const int sysLEDPWR = 3; // 3 NeoPixel power
 const int sysLED = 4; // 4 NeoPixel
 const int onSwitch = 5; // 5
 const int numReadings = 100; // ADC samples (of inputVoltage) per poll
-
+long previousMillis = 0;
+long interval = 5000;
 int neoPixelPin = sysLED;
 int numPixels = 1;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
@@ -98,6 +109,8 @@ void IRAM_ATTR onTimer1() { // switch input timeout
 
 void IRAM_ATTR onTimer2() { // ouput timeout
   digitalWrite(windscreen, HIGH); // high is off
+  digitalWrite(lMirror, HIGH); // high is off
+  digitalWrite(rMirror, HIGH); // high is off
   timerRestart(output_enable_timer); // reset the counter for next time
   timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
   autoTimeout = true;
@@ -111,15 +124,34 @@ void recvMsg(uint8_t *data, size_t len){
     d += char(data[i]);
   }
   WebSerial.println(d);
-  if (d == "1")
+  if (d == "0")
   {
-    digitalWrite(windscreen, LOW); // low is on
-    WebSerial.println("Turning outputs ON!");
-  }
-  else if (d == "0")
-  {
-    digitalWrite(windscreen, HIGH); // low is on
+    digitalWrite(windscreen, HIGH); // high is off
+    digitalWrite(lMirror, HIGH); // high is off
+    digitalWrite(rMirror, HIGH); // high is off
     WebSerial.println("Turning outputs OFF!");
+  }
+  else if (d == "1")
+  {
+    digitalWrite(windscreen, LOW); // high is off
+    WebSerial.println("Turning windscreen ON!");
+  }
+  else if (d == "2")
+  {
+    digitalWrite(lMirror, LOW); // high is off
+    WebSerial.println("Turning left mirror ON!");
+  }
+  else if (d == "3")
+  {
+    digitalWrite(rMirror, LOW); // high is off
+    WebSerial.println("Turning right mirror ON!");
+  }
+  else if (d == "4")
+  {
+    digitalWrite(windscreen, LOW); // high is off
+    digitalWrite(lMirror, LOW); // high is off
+    digitalWrite(rMirror, LOW); // high is off
+    WebSerial.println("Turning all outputs ON!");
   }
 }
 
@@ -153,16 +185,20 @@ void onOTAEnd(bool success) {
 
 void wifiAPUpdate() {
   Serial.println("Updating firmware, switch off heaters...");
-  digitalWrite(lMirror, HIGH); // low is on
-  digitalWrite(rMirror, HIGH); // low is on
-  digitalWrite(windscreen, HIGH); // low is on
+  digitalWrite(lMirror, HIGH); // high is off
+  digitalWrite(rMirror, HIGH); // high is off
+  digitalWrite(windscreen, HIGH); // high is off
 
-  //WiFi.mode(WIFI_AP);
-  //WiFi.softAP(ssid);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  //WiFi.softAP(ssid);
-  //IPAddress IP = WiFi.softAPIP();
+  if (enable_debug) {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(ssid);
+    wm.setHostname("ae-update");
+    wm.autoConnect();
+  } else {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+  }
+  
   IPAddress IP = WiFi.localIP();
   Serial.print("ae-update AP IP address: ");
   Serial.println(IP);
@@ -263,18 +299,18 @@ void processSwitchEvents()
             {
               Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
               WebSerial.printf("Auto mode timer running for %i minutes...\n", onTime);
-              digitalWrite(lMirror, LOW); // low is on
-              digitalWrite(rMirror, LOW); // low is on
-              digitalWrite(windscreen, LOW); // low is on
+              digitalWrite(lMirror, LOW); // high is off
+              digitalWrite(rMirror, LOW); // high is off
+              digitalWrite(windscreen, LOW); // high is off
               timerAlarmEnable(output_enable_timer); // enable the output timeout timer
             }
             else if ((!autoMode) && (autoTimeout)) // manual mode
             {
               Serial.println("Manual mode, switch on...");
               WebSerial.println("Manual mode, switch on...");
-              digitalWrite(lMirror, LOW); // low is on
-              digitalWrite(rMirror, LOW); // low is on
-              digitalWrite(windscreen, LOW); // low is on
+              digitalWrite(lMirror, LOW); // high is off
+              digitalWrite(rMirror, LOW); // high is off
+              digitalWrite(windscreen, LOW); // high is off
             }
           }
           else
@@ -424,6 +460,40 @@ void activate() {
   strip.show();
 }
 
+void doWiFiManager(){
+  // is auto timeout portal running
+  if(portalRunning){
+    wm.process(); // do processing
+
+    // check for timeout
+    if((millis()-startTime) > (timeout*1000)){
+      Serial.println("portaltimeout");
+      portalRunning = false;
+      if(startAP){
+        wm.stopConfigPortal();
+      }
+      else{
+        wm.stopWebPortal();
+      } 
+   }
+  }
+
+  // is configuration portal requested?
+  if (digitalRead(onSwitch) == LOW && (!portalRunning)) { // ToDo: make this enable the config portal on erase/start
+    if(startAP){
+      Serial.println("Button Pressed, Starting Config Portal");
+      wm.setConfigPortalBlocking(false);
+      wm.startConfigPortal();
+    }  
+    else{
+      Serial.println("Button Pressed, Starting Web Portal");
+      wm.startWebPortal();
+    }  
+    portalRunning = true;
+    startTime = millis();
+  }
+}
+
 void setup() {
   // initialise Serial for debugging, uart over USB
   Serial.begin(115200);
@@ -472,11 +542,12 @@ void setup() {
 void loop() 
 {
 
-  if ((updateEnable) || (debug))
+  if ((updateEnable) || (enable_debug))
   {
     if (updateRunning)
     {
       ElegantOTA.loop();
+      doWiFiManager();
     }
     else
     {
