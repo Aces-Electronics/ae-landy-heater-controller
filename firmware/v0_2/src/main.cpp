@@ -2,12 +2,10 @@
 #include <nvs_flash.h>
 #include <Preferences.h>
 #include <CircularBuffer.hpp>
-#include <esp_now.h>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <ElegantOTA.h>
 #include <WebSerial.h>
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
@@ -17,19 +15,17 @@
 #if defined debug
  const char* ssid = "ae-update";
  bool enable_debug = true;
-#else
- const char* ssid = "ShelveNET";
 #endif
 
 WiFiManager wm;
+WiFiManagerParameter custom_heater_timeout("heaterTimeout", "Heater Timeout (0-30 mins)", "0", 2); // set the onTime in the portal according to savedparams
 
-unsigned int  timeout   = 120; // seconds to run for
+unsigned int  timeout   = 180; // seconds to run for
 unsigned int  startTime = millis();
 bool portalRunning      = false;
 bool startAP            = false; // start AP and webserver if true, else start only webserver
 bool deviceConfigured   = false;
 
-const char* password = "buttpiratry";
 const int windscreen = 10; // WS MOSFET
 const int lMirror = 6; // LMR MOSFET
 const int rMirror = 7; // RMR MOSFET
@@ -93,7 +89,6 @@ hw_timer_t *output_enable_timer = NULL;
 Preferences preferences;
 
 AsyncWebServer server(80);
-unsigned long ota_progress_millis = 0;
 
 CircularBuffer<float, 200> buffer;
 
@@ -133,90 +128,26 @@ void recvMsg(uint8_t *data, size_t len){
   }
   else if (d == "1")
   {
-    digitalWrite(windscreen, LOW); // high is off
+    digitalWrite(windscreen, LOW); // low is on
     WebSerial.println("Turning windscreen ON!");
   }
   else if (d == "2")
   {
-    digitalWrite(lMirror, LOW); // high is off
+    digitalWrite(lMirror, LOW); // low is on
     WebSerial.println("Turning left mirror ON!");
   }
   else if (d == "3")
   {
-    digitalWrite(rMirror, LOW); // high is off
+    digitalWrite(rMirror, LOW); // low is on
     WebSerial.println("Turning right mirror ON!");
   }
   else if (d == "4")
   {
-    digitalWrite(windscreen, LOW); // high is off
-    digitalWrite(lMirror, LOW); // high is off
-    digitalWrite(rMirror, LOW); // high is off
+    digitalWrite(windscreen, LOW); // low is on
+    digitalWrite(lMirror, LOW); // low is on
+    digitalWrite(rMirror, LOW); // low is on
     WebSerial.println("Turning all outputs ON!");
   }
-}
-
-void onOTAStart() {
-  // Log when OTA has started
-  Serial.println("OTA update started!");
-  WebSerial.println("OTA update started!");
-  // <Add your own code here>
-}
-
-void onOTAProgress(size_t current, size_t final) {
-  // Log every 1 second
-  if (millis() - ota_progress_millis > 1000) {
-    ota_progress_millis = millis();
-    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
-    WebSerial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
-  }
-}
-
-void onOTAEnd(bool success) {
-  // Log when OTA has finished
-  if (success) {
-    Serial.println("OTA update finished successfully!");
-    WebSerial.println("OTA update finished successfully!");
-  } else {
-    Serial.println("There was an error during OTA update!");
-    WebSerial.println("There was an error during OTA update!");
-  }
-  // <Add your own code here>
-}
-
-void wifiAPUpdate() {
-  Serial.println("Updating firmware, switch off heaters...");
-  digitalWrite(lMirror, HIGH); // high is off
-  digitalWrite(rMirror, HIGH); // high is off
-  digitalWrite(windscreen, HIGH); // high is off
-
-  if (enable_debug) {
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(ssid);
-    wm.setHostname("ae-update");
-    wm.autoConnect();
-  } else {
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-  }
-  
-  IPAddress IP = WiFi.localIP();
-  Serial.print("ae-update AP IP address: ");
-  Serial.println(IP);
-  Serial.println("WebSerial is accessible at /webserial in browser");
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->redirect("/update");
-  });
-
-  ElegantOTA.begin(&server);    // start ElegantOTA
-  WebSerial.begin(&server);     // start webserial
-  WebSerial.msgCallback(recvMsg);
-  ElegantOTA.onStart(onOTAStart);
-  ElegantOTA.onProgress(onOTAProgress);
-  ElegantOTA.onEnd(onOTAEnd);
-  server.begin();
-  Serial.println("HTTP server started");
-  updateEnable = true;
 }
 
 void switchEvent() // toggle switch in cabin
@@ -344,32 +275,42 @@ void processSwitchEvents()
   needToProcessSwitchEvents = false;
 }
 
-void loadPreferences()
-{
-  if (preferences.begin("ae-landy-heater", false))
+ void saveParamsCallback () {
+  onTime = atoi (custom_heater_timeout.getValue());
+  if (onTime > 30) {
+    onTime = 30;
+  } else if (onTime < 0)
   {
-    if (preferences.getBool("configured"))
-    {
-      onTime = preferences.getInt("onTime");
-      autoMode = preferences.getBool("autoMode");
-      Serial.print("Device has been configured!");
-      if (!autoMode)
-      {
-        Serial.print("Device is running in manual mode!");
-      } 
-      else
-      {
-        Serial.printf("Device is running in auto mode and on for %i minutes", onTime);
-      }
-    }
-    else
-    {
-      preferences.putBool("autoMode", true);
-      preferences.putInt("onTime", 10);
-      preferences.putBool("configured", true);
-    }
+    onTime = 0;
   }
-  preferences.end();
+  
+  needToSavePreferences = true;
+}
+
+void wifiAPUpdate() {
+  Serial.println("Updating firmware, switch off heaters...");
+  digitalWrite(lMirror, HIGH); // high is off
+  digitalWrite(rMirror, HIGH); // high is off
+  digitalWrite(windscreen, HIGH); // high is off
+
+  if (enable_debug) {
+    wm.setHostname("ae-update");
+    wm.addParameter(&custom_heater_timeout);
+    wm.setConfigPortalBlocking(false);
+    wm.setSaveParamsCallback(saveParamsCallback);
+    wm.autoConnect(ssid);
+  }
+  
+  IPAddress IP = WiFi.localIP();
+  Serial.print("ae-update AP IP address: ");
+  Serial.println(IP);
+  Serial.println("WebSerial is accessible at /webserial in browser");
+
+  WebSerial.begin(&server);     // start webserial
+  WebSerial.msgCallback(recvMsg);
+  server.begin();
+  Serial.println("HTTP server started");
+  updateEnable = true;
 }
 
 void savePreferences()
@@ -379,14 +320,6 @@ void savePreferences()
   preferences.putInt("onTime", onTime);
   preferences.end();
   needToSavePreferences = false;
-}
-
-void factoryReset()
-{
-  nvs_flash_erase(); // erase the NVS partition.
-  nvs_flash_init();  // initialize the NVS partition.
-  delay(500);
-  ESP.restart(); // reset to clear memory
 }
 
 void processEventData()
@@ -454,7 +387,7 @@ void allOff() {
 
 // the activate function will set the pixel color, change the brightness level
 // and have a small delay
-void activate() {   
+void activateLEDs() {   
   strip.setPixelColor(0, 0,0,255);   
   strip.setBrightness(brightness);  
   strip.show();
@@ -483,6 +416,7 @@ void doWiFiManager(){
     if(startAP){
       Serial.println("Button Pressed, Starting Config Portal");
       wm.setConfigPortalBlocking(false);
+      wm.setConfigPortalTimeout(timeout);
       wm.startConfigPortal();
     }  
     else{
@@ -494,9 +428,42 @@ void doWiFiManager(){
   }
 }
 
+void loadPreferences()
+{
+  if (preferences.begin("ae-landy-heater", false))
+  {
+    if (preferences.getBool("configured"))
+    {
+      onTime = preferences.getInt("onTime");
+      Serial.print("Device has been configured!");
+      if (!autoMode)
+      {
+        Serial.print("Device is running in manual mode!");
+      }else
+      {
+        Serial.printf("Device is running in auto mode and on for %i minutes", onTime);
+      }
+    }else
+    {
+      preferences.putBool("autoMode", true); //ToDo: tie this into AP autostart
+      preferences.putInt("onTime", 0);
+      onTime = preferences.getInt("onTime");
+      Serial.printf("Setting onTime to %i minutes", onTime);
+      preferences.putBool("configured", true); 
+    }
+    // set WiFiManager value
+    char _cstrOnTime[8];
+    itoa(onTime, _cstrOnTime, 10);
+    custom_heater_timeout.setValue(_cstrOnTime, 2);
+  }
+  preferences.end();
+}
+
 void setup() {
   // initialise Serial for debugging, uart over USB
   Serial.begin(115200);
+
+  //factoryReset();
 
   // initialise digital pins as an output.
   pinMode(windscreen, OUTPUT);
@@ -511,7 +478,7 @@ void setup() {
   strip.show();   // make sure it is visible
   strip.clear();  // Initialize all pixels to 'off'
 
-  activate();
+  activateLEDs(); // show stet via NEOPixel
 
   // set outputs to off (high = off)
   digitalWrite(windscreen, HIGH);
@@ -541,12 +508,10 @@ void setup() {
 // the loop function runs over and over again forever
 void loop() 
 {
-
   if ((updateEnable) || (enable_debug))
   {
     if (updateRunning)
     {
-      ElegantOTA.loop();
       doWiFiManager();
     }
     else
@@ -650,6 +615,12 @@ void loop()
       WebSerial.printf("Input voltage too low to turn on heater: %0.2fV!\n", inputVoltage);
       Serial.println("Outputs and timer disabled!\n");
       WebSerial.println("Outputs and timer disabled!\n");
+
+      preferences.begin("ae-landy-heater", false);
+      Serial.printf("Reading back onTime from Preferences, which is %i minutes\n", preferences.getInt("onTime"));
+      Serial.printf("Reading back onTime from WiFiManeger, which is %s minutes\n", custom_heater_timeout.getValue());
+      preferences.end();
+
     } 
     else if (inputVoltage >= 13.80)
     {
