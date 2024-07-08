@@ -4,9 +4,6 @@
 #include <CircularBuffer.hpp>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <WiFi.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-#include <WebSerial.h>
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
 
@@ -86,8 +83,6 @@ hw_timer_t *output_enable_timer = NULL;
 
 Preferences preferences;
 
-AsyncWebServer server(80);
-
 CircularBuffer<float, 200> buffer;
 
 // REPLACE WITH THE MAC Address of your receiver 
@@ -107,45 +102,6 @@ void IRAM_ATTR onTimer2() { // ouput timeout
   timerRestart(output_enable_timer); // reset the counter for next time
   timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
   autoTimeout = true;
-}
-
-/* Message callback of WebSerial */
-void recvMsg(uint8_t *data, size_t len){
-  WebSerial.println("Received Data...");
-  String d = "";
-  for(int i=0; i < len; i++){
-    d += char(data[i]);
-  }
-  WebSerial.println(d);
-  if (d == "0")
-  {
-    digitalWrite(windscreen, HIGH); // high is off
-    digitalWrite(lMirror, HIGH); // high is off
-    digitalWrite(rMirror, HIGH); // high is off
-    WebSerial.println("Turning outputs OFF!");
-  }
-  else if (d == "1")
-  {
-    digitalWrite(windscreen, LOW); // low is on
-    WebSerial.println("Turning windscreen ON!");
-  }
-  else if (d == "2")
-  {
-    digitalWrite(lMirror, LOW); // low is on
-    WebSerial.println("Turning left mirror ON!");
-  }
-  else if (d == "3")
-  {
-    digitalWrite(rMirror, LOW); // low is on
-    WebSerial.println("Turning right mirror ON!");
-  }
-  else if (d == "4")
-  {
-    digitalWrite(windscreen, LOW); // low is on
-    digitalWrite(lMirror, LOW); // low is on
-    digitalWrite(rMirror, LOW); // low is on
-    WebSerial.println("Turning all outputs ON!");
-  }
 }
 
 void switchEvent() // toggle switch in cabin
@@ -216,9 +172,6 @@ void processSwitchEvents()
     {
       stateChangeCounter++;
       Serial.println("Looks like switch is on...");
-      if (wm.getConfigPortalActive()) {
-        WebSerial.println("Looks like switch is on..."); 
-      }
       if (inputVoltage >= 13.80) // I've plucked 13.8v from fat air
       {
         if (buffer.size() > 199)
@@ -227,9 +180,6 @@ void processSwitchEvents()
           if (!autoTimeout) //timer not expired
           {
             Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
-            if (wm.getConfigPortalActive()) {
-              WebSerial.printf("Auto mode timer running for %i minutes...\n", onTime);
-            }
             digitalWrite(lMirror, LOW); // high is off
             digitalWrite(rMirror, LOW); // high is off
             digitalWrite(windscreen, LOW); // high is off
@@ -239,18 +189,12 @@ void processSwitchEvents()
         else
         {
           Serial.println("Waiting for the input voltage to stabilise...");
-          if (wm.getConfigPortalActive()) {
-            WebSerial.println("Waiting for the input voltage to stabilise...");
-          }
         }
       }
     }
     else
     {
       Serial.println("Looks like switch is off...");
-      if (wm.getConfigPortalActive()) {
-        WebSerial.println("Looks like switch is off...");
-      }
       // turn off the outputs
       digitalWrite(windscreen, HIGH); // high is off
       digitalWrite(lMirror, HIGH); // high is off
@@ -258,9 +202,6 @@ void processSwitchEvents()
       timerRestart(output_enable_timer); // reset the counter for next time
       timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
       Serial.println("Outputs and timer disabled!");
-      if (wm.getConfigPortalActive()) {
-        WebSerial.println("Outputs and timer disabled!");
-      }
     }
   }
   lastDebounceTime = millis();
@@ -290,15 +231,6 @@ void wifiAPUpdate() {
   wm.setConfigPortalBlocking(false);
   wm.setSaveParamsCallback(saveParamsCallback);
   wm.autoConnect(ssid);
-  
-  Serial.println("WebSerial is accessible at /webserial in browser");
-
-  if (wm.getConfigPortalActive()) {
-    WebSerial.begin(&server);     // start webserial
-    WebSerial.msgCallback(recvMsg);
-  }
-  server.begin();
-  Serial.println("HTTP server started");
 }
 
 void factoryReset()
@@ -322,20 +254,12 @@ void processEventData()
 {
   Serial.printf("Switch has been set high %d times\n", stateChangeCounter);
   Serial.printf("ModeResetCounter = %i \n\n", t2-t1);
-
-  if (wm.getConfigPortalActive()) {
-    WebSerial.printf("Switch has been set high %d times\n", stateChangeCounter);
-    WebSerial.printf("ModeResetCounter = %i \n\n", t2-t1);
-  }
   
   if ((stateChangeCounter == 3) && (inputVoltage < onVoltage))
   {
     stateChangeCounter = 0; // reset counter to 0 for the second loop
     updateEnable = true; // enable WiFi AP
     Serial.println("AP enabled for firmware update!\n");
-    if (wm.getConfigPortalActive()) {
-      WebSerial.println("AP enabled for firmware update!\n");
-    }
     timerAlarmDisable(clear_state_timer);
   }
   eventTimerExpired = false;
@@ -503,18 +427,12 @@ void loop()
   if (autoTimeout)
   {
     Serial.println("Auto timeout has switched off outputs...");
-    if (wm.getConfigPortalActive()) {
-      WebSerial.println("Auto timeout has switched off outputs...");
-    }
   }
 
   if ((t2-t1 > 10000) && (eventTimerExpired)) // timeout mode setting after 10 seconds
   {
     stateChangeCounter = 0;
     Serial.println("Hard resetting loop counters and states: Settings timeout!\n");
-    if (wm.getConfigPortalActive()) {
-      WebSerial.println("Hard resetting loop counters and states: Settings timeout!\n");
-    }
     t1 = millis(); // reset the timer for the third loop, save settings
     timerAlarmDisable(clear_state_timer);
   }
@@ -542,27 +460,13 @@ void loop()
     if (inputVoltage < onVoltage * .99) // battery is flat- problem...
     {
       Serial.printf("Input voltage too low to turn on heater: %0.2fV!\n", inputVoltage);
-      if (wm.getConfigPortalActive()) {
-        WebSerial.printf("Input voltage too low to turn on heater: %0.2fV!\n", inputVoltage);
-        WebSerial.println("Outputs and timer disabled!\n");
-      }
       Serial.println("Outputs and timer disabled!\n");
     } 
     else if (inputVoltage >= onVoltage)
     {
       Serial.printf("System normal, running from the alternator: %0.2fV!\n", inputVoltage);
-      if (wm.getConfigPortalActive()) {
-        WebSerial.printf("System normal, running from the alternator: %0.2fV!\n\n", inputVoltage);
-      }
     }
     previousMillis = currentMillis;
-  }
-
-  if (buffer.size() < 200)
-  {
-    brightness = 5;
-    strip.setPixelColor(0,0,0,255); // blue 
-
   }
 
   strip.setBrightness(brightness);  
