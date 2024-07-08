@@ -547,13 +547,6 @@ void loop()
         WebSerial.println("Outputs and timer disabled!\n");
       }
       Serial.println("Outputs and timer disabled!\n");
-
-      #if defined debug
-      preferences.begin("ae-landy-heater", false);
-      Serial.printf("Reading back onTime from Preferences, which is %i minutes\n", preferences.getInt("onTime"));
-      Serial.printf("Reading back onTime from WiFiManeger, which is %s minutes\n", custom_heater_timeout.getValue());
-      preferences.end();
-      #endif
     } 
     else if (inputVoltage >= onVoltage)
     {
