@@ -3,7 +3,6 @@
 #include <Preferences.h>
 #include <CircularBuffer.hpp>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
-#include <WiFi.h>
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
 
@@ -220,19 +219,6 @@ void processSwitchEvents()
   needToSavePreferences = true;
 }
 
-void wifiAPUpdate() {
-  Serial.println("Updating firmware, switch off heaters...");
-  digitalWrite(lMirror, HIGH); // high is off
-  digitalWrite(rMirror, HIGH); // high is off
-  digitalWrite(windscreen, HIGH); // high is off
-
-  wm.setHostname("ae-update");
-  wm.addParameter(&custom_heater_timeout);
-  wm.setConfigPortalBlocking(false);
-  wm.setSaveParamsCallback(saveParamsCallback);
-  wm.autoConnect(ssid);
-}
-
 void factoryReset()
 {
   nvs_flash_erase(); // erase the NVS partition.
@@ -282,7 +268,6 @@ void activateLEDs() {
 void doWiFiManager(){
   // is auto timeout portal running
   if(portalRunning){
-    wm.process(); // do processing
 
     // check for timeout
     if((millis()-startTime) > (timeout*1000)){
@@ -371,6 +356,8 @@ void loop()
 {
   t2 = millis();
 
+  wm.process(); // do processing
+
   if (needToProcessSwitchEvents)
   {
     onSwitchState = !digitalRead(onSwitch); // logic is inverted
@@ -400,11 +387,28 @@ void loop()
     else
     { 
       //wm.resetSettings();
-      Serial.println("Update has been enabled...");
-      wifiAPUpdate();
-    }
-    updateRunning = true; // ToDO: time this out
-  }
+      Serial.println("Updating firmware, switch off heaters...");
+      digitalWrite(lMirror, HIGH); // high is off
+      digitalWrite(rMirror, HIGH); // high is off
+      digitalWrite(windscreen, HIGH); // high is off
+
+      WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP    
+      wm.addParameter(&custom_heater_timeout);
+      wm.setSaveParamsCallback(saveParamsCallback);
+
+      //wm.resetSettings();
+      wm.setConfigPortalBlocking(false);
+      //automatically connect using saved credentials if they exist
+      //If connection fails it starts an access point with the specified name
+      if(wm.autoConnect(ssid)){
+          Serial.println("connected...yeey :)");
+      }
+      else {
+          Serial.println("Configportal running");
+      }
+        }
+        updateRunning = true; // ToDO: time this out
+      }
 
   static char inputBuffer[MAX_MESSAGE];
   static unsigned char index = 0;
