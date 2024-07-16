@@ -24,7 +24,6 @@ unsigned int  timeout   = 180; // seconds to run for
 unsigned int  startTime = millis();
 bool portalRunning      = false;
 bool startAP            = false; // start AP and webserver if true, else start only webserver
-bool deviceConfigured   = false;
 
 const int windscreen = 10; // WS MOSFET
 const int lMirror = 6; // LMR MOSFET
@@ -70,8 +69,6 @@ long loopCounter = 0;
 long int t1 = 0;
 long int t2 = 0;
 
-char serial_input_char; // stores the char from inbound uart
-#define MAX_MESSAGE 30
 
 unsigned long newtime = 0;
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
@@ -403,28 +400,11 @@ void loop()
       if(wm.autoConnect(ssid)){
           Serial.println("connected...yeey :)");
       }
-      else {
-          Serial.println("Configportal running");
+      else 
+      {
+        Serial.println("Configportal running");
       }
-        }
-        updateRunning = true; // ToDO: time this out
-      }
-
-  static char inputBuffer[MAX_MESSAGE];
-  static unsigned char index = 0;
-
-  while (Serial.available() > 0) {
-    serial_input_char = Serial.read();
-    if (serial_input_char == '\r') {
-      Serial.print("You entered: ");
-      Serial.println(inputBuffer);
-      inputBuffer[0] = 0;
-      index = 0;
-    } else {        
-      if (index < MAX_MESSAGE-1) {
-        inputBuffer[index++] = serial_input_char;
-        inputBuffer[index] = 0;
-      }
+      updateRunning = true; // ToDO: time this out
     }
   } 
 
