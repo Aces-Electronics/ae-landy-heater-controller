@@ -13,7 +13,7 @@
 // Solid blue:
 //   Hardware in setup mode, access the web interface at http://192.168.4.1 after connecting to the ae-update WiFi network.
 // Solid red/green/blue combined (probably looks mostly white):
-//   Software update available, if connected to a WiFi network the system will check once a day to see if there are any new 
+//   Software update available, if connected to a WiFi network the system will check once a day to see if there are any new
 //   updates, it will signal that the update is ready, and then update. After the system updates the LED will return to the normal state.
 /////
 
@@ -26,15 +26,14 @@
 // To turn on the config portal:
 //   Pause for a second on each state change (off to on or on to off), toggle the switch on-off-on-off-on-off (turn it on three times, turn it off)
 //   You can then connect a phone, laptop or tablet to the ae-update wifi network; no password required. A captive portal with some options should pop up.
-//   You can also access the portal, once started, by browsing to http://192.168.4.1 
+//   You can also access the portal, once started, by browsing to http://192.168.4.1
 //   The portal will timeout after 3 minutes.
 // To factory default the device:
 //   Use the same process as above but toggle the switch on 5 times, then off, so
 //   on-off-on-off-on-off-on-off-on-off
-//   This will set the auto mode timout to 10 mins and erase all portal/WiFi settings. 
-//   If you connect the device to your home network, use a factory default to regain access to the portal if you are unable to find the device's IP address, which will  no longer be 192.168.4.1, check the WiFi router's web interface for the 
-////   
-
+//   This will set the auto mode timout to 10 mins and erase all portal/WiFi settings.
+//   If you connect the device to your home network, use a factory default to regain access to the portal if you are unable to find the device's IP address, which will  no longer be 192.168.4.1, check the WiFi router's web interface for the
+////
 
 // ToDo: try to connect to wifi, if configured, once per day to check for updates
 // ToDo: detect when the car starts
@@ -47,19 +46,19 @@
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
 
-const char* ssid = "ae-update";
+const char *ssid = "ae-update";
 float onVoltage = 13.80; // input voltage to allow the heaters turn on
 
-unsigned int  timeout   = 180; // seconds to run the AP for
-unsigned int  startTime = millis();
+unsigned int timeout = 180; // seconds to run the AP for
+unsigned int startTime = millis();
 
-const int windscreen = 10; // WS MOSFET
-const int lMirror = 6; // LMR MOSFET
-const int rMirror = 7; // RMR MOSFET
-const int vIn = 1; // 1
-const int sysLEDPWR = 3; // 3 NeoPixel power
-const int sysLED = 4; // 4 NeoPixel
-const int onSwitch = 5; // 5
+const int windscreen = 10;   // WS MOSFET
+const int lMirror = 6;       // LMR MOSFET
+const int rMirror = 7;       // RMR MOSFET
+const int vIn = 1;           // 1
+const int sysLEDPWR = 3;     // 3 NeoPixel power
+const int sysLED = 4;        // 4 NeoPixel
+const int onSwitch = 5;      // 5
 const int numReadings = 100; // ADC samples (of inputVoltage) per poll
 long previousMillis = 0;
 long interval = 1000; // seconds between IO and CLI updates
@@ -68,27 +67,27 @@ int neoPixelPin = sysLED;
 int numPixels = 1;
 
 // variables to control brightness levels
-int brightness = 100; 
+int brightness = 100;
 int brightDirection = -10;
-int onTime; // -1 manual/unconfigured
+int onTime;                 // -1 manual/unconfigured
 int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
-int readings[numReadings]; 
+int readings[numReadings];
 int readIndex = 0;
 float inputVoltage; // device input voltage, used to know when not to enable the heater
 
 bool updateUserCLITimeout = true; // allows the CLI to be updated with the heater timout output
-bool updateEnable = false; // stores whether or not to enable WiFI AP for the purposes of updating the firmware
-bool updateRunning = false; // stores whether or not the AP has been started
-bool onSwitchState = 0; // stores the on switch state, set to 1 (off) 
-bool eventTimerExpired = 0; // stores the state of the event timer
-bool needToSavePreferences = 0; // stores whether or not to update preferences, for use in the main loop
-bool autoTimeout = 0; // stores the state of the autoTimeout feature
-bool greenBlink = 0; // green led blink off
-bool redBlink = 0; // red led blink off
-bool blueBlink = 0; // blue led blink off
+bool updateEnable = false;        // stores whether or not to enable WiFI AP for the purposes of updating the firmware
+bool updateRunning = false;       // stores whether or not the AP has been started
+bool onSwitchState = 0;           // stores the on switch state, set to 1 (off)
+bool eventTimerExpired = 0;       // stores the state of the event timer
+bool needToSavePreferences = 0;   // stores whether or not to update preferences, for use in the main loop
+bool autoTimeout = 0;             // stores the state of the autoTimeout feature
+bool greenBlink = 0;              // green led blink off
+bool redBlink = 0;                // red led blink off
+bool blueBlink = 0;               // blue led blink off
 
-const float r1 = 13000.0f; // R1 in ohm, 13k
-const float r2 = 2200.0f; // R2 in ohm, 2.2k
+const float r1 = 13000.0f;                             // R1 in ohm, 13k
+const float r2 = 2200.0f;                              // R2 in ohm, 2.2k
 float vRefScale = (3.0f / 4096.0f) * ((r1 + r2) / r2); // gives us the voltage per LSB (0.005060369318)
 
 long total = 0;
@@ -97,8 +96,8 @@ long int t1 = 0;
 long int t2 = 0;
 
 unsigned long newtime = 0;
-unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay = 200;    // the debounce time; increase if the output flickers
+unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
+unsigned long debounceDelay = 200;  // the debounce time; increase if the output flickers
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
 WiFiManager wm;
@@ -112,39 +111,46 @@ Preferences preferences;
 
 CircularBuffer<float, 200> buffer;
 
-// REPLACE WITH THE MAC Address of your receiver 
+// REPLACE WITH THE MAC Address of your receiver
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // Variable to store if sending data was successful
 String success;
 
-void IRAM_ATTR onTimer0() { // switch input timeout
+void IRAM_ATTR onTimer0()
+{ // switch input timeout
   eventTimerExpired = true;
 }
 
-void IRAM_ATTR onTimer1() { // ouput timeout
-  digitalWrite(windscreen, HIGH); // high is off
-  digitalWrite(lMirror, HIGH); // high is off
-  digitalWrite(rMirror, HIGH); // high is off
-  timerRestart(output_enable_timer); // reset the counter for next time
+void IRAM_ATTR onTimer1()
+{                                         // ouput timeout
+  digitalWrite(windscreen, HIGH);         // high is off
+  digitalWrite(lMirror, HIGH);            // high is off
+  digitalWrite(rMirror, HIGH);            // high is off
+  timerRestart(output_enable_timer);      // reset the counter for next time
   timerAlarmDisable(output_enable_timer); // disable the output timeout timer
-  autoTimeout = true; // heater timeout has timed out
-  updateUserCLITimeout = true; // allow the CLI to be updated with the timeout info
+  autoTimeout = true;                     // heater timeout has timed out
+  updateUserCLITimeout = true;            // allow the CLI to be updated with the timeout info
 }
 
-void disableAp() { // ap timeout
+void disableAp()
+{ // ap timeout
   updateEnable = false;
   updateRunning = false;
-  if (wm.getConfigPortalActive()) {
+  if (wm.getConfigPortalActive())
+  {
     wm.stopConfigPortal();
   }
-  if (wm.getWebPortalActive()) {
+  if (wm.getWebPortalActive())
+  {
     wm.stopWebPortal();
   }
 }
 
-void switchEvent() {
-  if ((millis() - lastDebounceTime) > debounceDelay) {
+void switchEvent()
+{
+  if ((millis() - lastDebounceTime) > debounceDelay)
+  {
     if (onSwitchState)
     {
       stateChangeCounter++;
@@ -153,19 +159,23 @@ void switchEvent() {
   lastDebounceTime = millis();
 }
 
-void adjustd() {
+void adjustd()
+{
   brightness = brightness + brightDirection;
-  if ( brightness < 5 ) {
-     brightness = 0;
-     brightDirection = -brightDirection;
-  } 
-  else if ( brightness > 255 ) {
-     brightness = 255;
-     brightDirection = -brightDirection;
-  } 
+  if (brightness < 5)
+  {
+    brightness = 0;
+    brightDirection = -brightDirection;
+  }
+  else if (brightness > 255)
+  {
+    brightness = 255;
+    brightDirection = -brightDirection;
+  }
 }
 
-long smooth() { 
+long smooth()
+{
   // perform average on sensor readings
   long average;
   // subtract the last reading:
@@ -176,7 +186,8 @@ long smooth() {
   total = total + readings[readIndex];
   // handle index
   readIndex = readIndex + 1;
-  if (readIndex >= numReadings) {
+  if (readIndex >= numReadings)
+  {
     readIndex = 0;
   }
   // calculate the average:
@@ -185,7 +196,8 @@ long smooth() {
   return average;
 }
 
-void checkVoltage() {
+void checkVoltage()
+{
 
   float avg = 0.0;
 
@@ -198,27 +210,31 @@ void checkVoltage() {
   inputVoltage = avg;
 }
 
- void saveParamsCallback () {
-  onTime = atoi (custom_heater_timeout.getValue());
-  if (onTime > 30) {
+void saveParamsCallback()
+{
+  onTime = atoi(custom_heater_timeout.getValue());
+  if (onTime > 30)
+  {
     onTime = 30;
-  } 
+  }
   else if (onTime < 0)
   {
     onTime = 0;
   }
-  
+
   needToSavePreferences = true;
 }
 
-void factoryReset() {
+void factoryReset()
+{
   nvs_flash_erase(); // erase the NVS partition.
   nvs_flash_init();  // initialize the NVS partition.
   delay(500);
   ESP.restart(); // reset to clear memory
 }
 
-void savePreferences() {  
+void savePreferences()
+{
   Serial.println("saving settings to flash");
   preferences.begin("ae-landy-heater", false);
   preferences.putInt("onTime", onTime);
@@ -226,17 +242,20 @@ void savePreferences() {
   needToSavePreferences = false;
 }
 
-void processEventData() {
+void processEventData()
+{
   Serial.printf("Switch has been set high %d times\n", stateChangeCounter);
-  Serial.printf("Seconds since switch event (ModeResetCounter) = %i \n\n", t2-t1);
-  
-  if (stateChangeCounter == 3) {
+  Serial.printf("Seconds since switch event (ModeResetCounter) = %i \n\n", t2 - t1);
+
+  if (stateChangeCounter == 3)
+  {
     stateChangeCounter = 0; // reset counter to 0 for the second loop
-    updateEnable = true; // enable WiFi AP
+    updateEnable = true;    // enable WiFi AP
     Serial.println("AP enabled for firmware update!\n");
     timerAlarmDisable(clear_state_timer);
-  } 
-  else if (stateChangeCounter > 4) {
+  }
+  else if (stateChangeCounter > 4)
+  {
     stateChangeCounter = 0; // reset counter to 0 for the second loop
     Serial.println("Factory reset in 3  2  1!\n");
     wm.resetSettings();
@@ -245,25 +264,31 @@ void processEventData() {
   eventTimerExpired = false;
 }
 
-void doWiFiManager() {
-  if((millis()-startTime) > (timeout*1000)){
+void doWiFiManager()
+{
+  if ((millis() - startTime) > (timeout * 1000))
+  {
     Serial.println("portaltimeout");
     disableAp();
   }
 }
 
-void loadPreferences() {
-  if (preferences.begin("ae-landy-heater", false)) {
-    if (preferences.getBool("configured")) {
+void loadPreferences()
+{
+  if (preferences.begin("ae-landy-heater", false))
+  {
+    if (preferences.getBool("configured"))
+    {
       onTime = preferences.getInt("onTime");
       Serial.print("Device has been configured!");
       Serial.printf("Device is running in auto mode and on for %i minutes", onTime);
     }
-    else {
+    else
+    {
       preferences.putInt("onTime", 0);
       onTime = preferences.getInt("onTime");
       Serial.printf("Setting onTime to %i minutes", onTime);
-      preferences.putBool("configured", true); 
+      preferences.putBool("configured", true);
     }
     // set WiFiManager value
     char _cstrOnTime[8];
@@ -273,7 +298,8 @@ void loadPreferences() {
   preferences.end();
 }
 
-void setup() {
+void setup()
+{
   // initialise Serial for debugging, uart over USB
   Serial.begin(115200);
 
@@ -286,10 +312,10 @@ void setup() {
   digitalWrite(sysLEDPWR, HIGH);
   pinMode(onSwitch, INPUT_PULLUP);
 
-  strip.begin(); // initialize the strip
-  strip.clear(); // Initialize all pixels to 'off'
-  strip.setPixelColor(0, 0,0,255); // set pixel to blue
-  strip.setBrightness(brightness);  
+  strip.begin();                     // initialize the strip
+  strip.clear();                     // Initialize all pixels to 'off'
+  strip.setPixelColor(0, 0, 0, 255); // set pixel to blue
+  strip.setBrightness(brightness);
   strip.show();
 
   // set outputs to off (high = off)
@@ -308,170 +334,204 @@ void setup() {
   timerAttachInterrupt(clear_state_timer, &onTimer0, true);
   timerAlarmWrite(clear_state_timer, 5000000, true); // 5 seconds
 
-  if (onTime < 1) { // sets the maximum on time, even in manual mode (0), to 30 mins (might be too short)
+  if (onTime < 1)
+  { // sets the maximum on time, even in manual mode (0), to 30 mins (might be too short)
     onTimeTimer = 30;
-  } 
-  else {
+  }
+  else
+  {
     onTimeTimer = onTime;
   }
 
   output_enable_timer = timerBegin(1, 80, true);
   timerAttachInterrupt(output_enable_timer, &onTimer1, true);
-  timerAlarmWrite(output_enable_timer, onTimeTimer*60000000, true); // set in portal, 30 by defult
+  timerAlarmWrite(output_enable_timer, onTimeTimer * 60000000, true); // set in portal, 30 by defult
 
   Serial.println("\n\nSetup done");
 }
 
 // the loop function runs over and over again forever
-void loop() {
-  // 
+void loop()
+{
+  //
   int _avgVal = 0;
-  for ( int i = 0; i < 10; i = i + 1) {  // reads ten values
+  for (int i = 0; i < 10; i = i + 1)
+  {                                    // reads ten values
     _avgVal += !digitalRead(onSwitch); // read value from switch input
     delay(5);
   }
-  if (_avgVal > 5) {
+  if (_avgVal > 5)
+  {
     onSwitchState = 1; // logic is inverted in hardware
-  } 
-  else {
+  }
+  else
+  {
     onSwitchState = 0; // logic is inverted in hardware
   }
-  
-  t2 = millis()/1000; // keep track of time since x
 
-  wm.process(); // do processing 
+  t2 = millis() / 1000; // keep track of time since x
+
+  wm.process(); // do processing
 
   // check the input voltage, control the heaters
   checkVoltage();
 
   // save preferences, if required
-  if (needToSavePreferences) {
+  if (needToSavePreferences)
+  {
     savePreferences();
   }
 
-  if (eventTimerExpired) {
+  if (eventTimerExpired)
+  {
     Serial.printf("Input wait timer expired\n");
     processEventData();
   }
 
-  if (updateEnable) {
-    if (updateRunning) {
+  if (updateEnable)
+  {
+    if (updateRunning)
+    {
       doWiFiManager();
     }
-    else { 
-      
+    else
+    {
+
       Serial.println("Updating firmware, switch off heaters...");
-      digitalWrite(lMirror, HIGH); // high is off
-      digitalWrite(rMirror, HIGH); // high is off
+      digitalWrite(lMirror, HIGH);    // high is off
+      digitalWrite(rMirror, HIGH);    // high is off
       digitalWrite(windscreen, HIGH); // high is off
 
-      WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP    
+      WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
       wm.addParameter(&custom_heater_timeout);
       wm.setSaveParamsCallback(saveParamsCallback);
-      //wm.setBreakAfterConfig(true);
+      // wm.setBreakAfterConfig(true);
       wm.setConfigPortalBlocking(false);
 
       startTime = millis(); // keeps track of whn the AP was enabled, to timout after 3 minutes
 
-      //automatically connect using saved credentials if they exist
-      //If connection fails it starts an access point with the specified name
-      if(wm.autoConnect(ssid)) {
+      // automatically connect using saved credentials if they exist
+      // If connection fails it starts an access point with the specified name
+      if (wm.autoConnect(ssid))
+      {
         Serial.println("Connected to WiFi, as per the SSID that was selected in the config portal!");
       }
-      else {
+      else
+      {
         Serial.println("Configportal running...");
       }
       updateRunning = true;
     }
-  } 
+  }
 
-  if ((autoTimeout) && (updateUserCLITimeout)) {
+  if ((autoTimeout) && (updateUserCLITimeout))
+  {
     updateUserCLITimeout = false;
     Serial.println("Auto timeout has switched off outputs...");
   }
 
-  if ((t2-t1 > 10) && (stateChangeCounter > 0)) { // timeout mode setting after 10 seconds
+  if ((t2 - t1 > 10) && (stateChangeCounter > 0))
+  { // timeout mode setting after 10 seconds
     stateChangeCounter = 0;
     Serial.println("Hard resetting loop counters and states: Settings timeout!\n");
-    t1 = millis()/1000; // reset the timer for the third loop, save settings
+    t1 = millis() / 1000; // reset the timer for the third loop, save settings
     timerAlarmDisable(clear_state_timer);
   }
 
   // simple timer to send serial prints at less than the speed of light
   unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis > interval) {
-    if (inputVoltage < onVoltage * .99) { // battery is flat- problem...
+  if (currentMillis - previousMillis > interval)
+  {
+    if (inputVoltage < onVoltage * .99)
+    { // battery is flat- problem...
       Serial.printf("Input voltage too low to turn on heater: %0.2fV!\n", inputVoltage);
       Serial.println("Outputs and timer disabled!\n");
       digitalWrite(windscreen, HIGH); // high is off
       digitalWrite(lMirror, HIGH);
       digitalWrite(rMirror, HIGH);
-      timerRestart(output_enable_timer); // reset the counter for next time
+      timerRestart(output_enable_timer);      // reset the counter for next time
       timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
 
-      if (onSwitchState) {
-        strip.setPixelColor(0,255,0,0); // red
+      if (onSwitchState)
+      {
+        strip.setPixelColor(0, 255, 0, 0); // red
       }
-      else {
-        if (!redBlink) {
-          strip.setPixelColor(0,255,0,0); // red 
+      else
+      {
+        if (!redBlink)
+        {
+          strip.setPixelColor(0, 255, 0, 0); // red
           redBlink = true;
-        } 
-        else {
+        }
+        else
+        {
           redBlink = false;
           strip.clear();
         }
-        brightness = 5;  // fully red and dull
-        if ((updateEnable) && (wm.getConfigPortalActive())) {
-          strip.setPixelColor(0, 255,255,255); // set pixel to blue
-          strip.setBrightness(15); 
+        brightness = 5; // fully red and dull
+        if ((updateEnable) && (wm.getConfigPortalActive()))
+        {
+          strip.setPixelColor(0, 255, 255, 255); // set pixel to blue
+          strip.setBrightness(15);
         }
       }
-    } 
-    else if (inputVoltage >= onVoltage) { // ToDo: need a way to turn on the heater when the car is started 
-      if (onSwitchState) {
-        strip.setPixelColor(0,0,255,0); // green
+    }
+    else if (inputVoltage >= onVoltage)
+    { // ToDo: need a way to turn on the heater when the car is started
+      if (onSwitchState)
+      {
+        strip.setPixelColor(0, 0, 255, 0); // green
         strip.setBrightness(5);
-        t1 = millis()/1000; // used for: seconds since switch was flicked
-        timerRestart(clear_state_timer); // reset the switch event timer
+        t1 = millis() / 1000;                // used for: seconds since switch was flicked
+        timerRestart(clear_state_timer);     // reset the switch event timer
         timerAlarmEnable(clear_state_timer); // restart the switch event timer
 
         Serial.println("Switch is on, heaters are on");
-        if (buffer.size() > 199) {
-          if (!autoTimeout) { // timer not expired
-            if (onTime < 1) {
+        if (buffer.size() > 199)
+        {
+          if (!autoTimeout)
+          { // timer not expired
+            if (onTime < 1)
+            {
               Serial.printf("Heaters enabled in manual mode (auto timeout set to 0 in the Portal\n");
-            } 
-            else {
+            }
+            else
+            {
               Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
             }
-            if (eventTimerExpired) {
-              digitalWrite(lMirror, LOW); // high is off
-              digitalWrite(rMirror, LOW); // high is off
-              digitalWrite(windscreen, LOW); // high is off
+            if (eventTimerExpired)
+            {
+              digitalWrite(lMirror, LOW);            // high is off
+              digitalWrite(rMirror, LOW);            // high is off
+              digitalWrite(windscreen, LOW);         // high is off
               timerAlarmEnable(output_enable_timer); // enable the output timeout timer
             }
           }
-        } 
-        else {
+        }
+        else
+        {
           Serial.println("Waiting for the input voltage to stabilise...");
         }
       }
-      else {
+      else
+      {
         Serial.printf("System normal, switch is off, running from alternator: %0.2fV!\n", inputVoltage);
-        if (eventTimerExpired) {
-          digitalWrite(windscreen, HIGH); // high is off
-          digitalWrite(lMirror, HIGH); // high is off
-          digitalWrite(rMirror, HIGH); // high is off
-          timerRestart(output_enable_timer); // reset the counter for next time
+        if (eventTimerExpired)
+        {
+          digitalWrite(windscreen, HIGH);         // high is off
+          digitalWrite(lMirror, HIGH);            // high is off
+          digitalWrite(rMirror, HIGH);            // high is off
+          timerRestart(output_enable_timer);      // reset the counter for next time
           timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
         }
-        
-        if (!greenBlink) {
-          strip.setPixelColor(0,0,255,0); // green 
+
+        if (!greenBlink)
+        {
+          strip.setPixelColor(0, 0, 255, 0); // green
           greenBlink = true;
-        } 
-        else {
+        }
+        else
+        {
           greenBlink = false;
           strip.clear();
         }
@@ -479,9 +539,10 @@ void loop() {
     }
     previousMillis = currentMillis;
     strip.setBrightness(5);
-    if ((updateEnable) && (wm.getConfigPortalActive())) {
-      strip.setPixelColor(0, 255,255,255); // set pixel to blue
-      strip.setBrightness(15); 
+    if ((updateEnable) && (wm.getConfigPortalActive()))
+    {
+      strip.setPixelColor(0, 255, 255, 255); // set pixel to blue
+      strip.setBrightness(15);
     }
   }
   strip.show();
