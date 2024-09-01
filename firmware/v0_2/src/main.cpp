@@ -12,9 +12,14 @@
 //   system booting/rebooting
 // solid blue:
 //   hardware in setup mode, access the web interface at http://192.168.4.1 after connecting to the ae-update WiFi network 
-// flashing red/green/blue combined:
+// solid red/green/blue combined (probably looks mostly white):
 //   software update available, if connected to a WiFi network the system will check once a day to see if there are any new 
 //   updates, it will signal that the update is ready, and then update. After the system updates the LED will return to the normal state
+//////
+
+
+// ToDo: exit the AP when you click exit in the web page
+// ToDo: time out the AP manually
 
 #include <Arduino.h>
 #include <nvs_flash.h>
@@ -94,7 +99,7 @@ long int t2 = 0;
 
 unsigned long newtime = 0;
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay = 400;    // the debounce time; increase if the output flickers
+unsigned long debounceDelay = 200;    // the debounce time; increase if the output flickers
 
 hw_timer_t *clear_state_timer = NULL;
 hw_timer_t *output_enable_timer = NULL;
@@ -111,7 +116,6 @@ String success;
 
 void IRAM_ATTR onTimer1() { // switch input timeout
   eventTimerExpired = true;
-  Serial.println("!\n");
 }
 
 void IRAM_ATTR onTimer2() { // ouput timeout
@@ -319,7 +323,7 @@ void loop() {
   int _avgVal = 0;
   for ( int i = 0; i < 10; i = i + 1) {  // reads ten values
     _avgVal += !digitalRead(onSwitch); // read value from switch input
-    delay(10);
+    delay(5);
   }
   if (_avgVal > 5) {
     onSwitchState = 1; // logic is inverted in hardware
@@ -341,7 +345,7 @@ void loop() {
   }
 
   if (eventTimerExpired) {
-    Serial.printf("Input wait timer expired: %i\n", eventTimerExpired);
+    Serial.printf("Input wait timer expired");
     processEventData();
   }
 
@@ -411,21 +415,23 @@ void loop() {
           strip.clear();
         }
         brightness = 5;  // fully red and dull
+        if (updateEnable) {
+          strip.setPixelColor(0, 255,255,255); // set pixel to blue
+          strip.setBrightness(15); 
+        }
       }
     } 
     else if (inputVoltage >= onVoltage) { // ToDo: need a way to turn on the heater when the car is started 
       if (onSwitchState) {
         strip.setPixelColor(0,0,255,0); // green
         strip.setBrightness(5);
-        Serial.printf("Switch state from state reader: %i\n", onSwitchState);
         t1 = millis()/1000; // used for: seconds since switch was flicked
         timerRestart(clear_state_timer); // reset the switch event timer
         timerAlarmEnable(clear_state_timer); // restart the switch event timer
 
-        Serial.println("Looks like switch is on...");
+        Serial.println("Switch is on, heaters are on");
         if (buffer.size() > 199) {
-          //logic is reversed, 0/false is on
-          if (!autoTimeout) { //timer not expired
+          if (!autoTimeout) { // timer not expired
             if (onTime < 1) {
               Serial.printf("Heaters enabled in manual mode (auto timeout set to 0 in the Portal\n");
             } 
@@ -462,10 +468,10 @@ void loop() {
     }
     previousMillis = currentMillis;
     strip.setBrightness(5);
+    if (updateEnable) {
+      strip.setPixelColor(0, 255,255,255); // set pixel to blue
+      strip.setBrightness(15); 
+    }
   }
-
   strip.show();
-  
-  // delay for the purposes of debouncing the switch and allowing the NeoPixel to cycle colour/brightness
-  delay(DELAY_TIME);
 }
