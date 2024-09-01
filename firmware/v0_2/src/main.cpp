@@ -1,25 +1,43 @@
 //////
 // How to read the LED on the JonoTron Hardware:
-// flashing red:
-//   battery voltage too low, switch off and auto-mode off, heaters off
-// flashing green:
-//   battery voltage okay, switch off and auto-mode off, heaters off
-// solid red:
-//   battery voltage too low, switch on or auto-mode on, heaters off
-// solid green:
-//   battery voltage okay, switch on or auto-mode on, heaters on
-// flash blue:
-//   system booting/rebooting
-// solid blue:
-//   hardware in setup mode, access the web interface at http://192.168.4.1 after connecting to the ae-update WiFi network 
-// solid red/green/blue combined (probably looks mostly white):
-//   software update available, if connected to a WiFi network the system will check once a day to see if there are any new 
-//   updates, it will signal that the update is ready, and then update. After the system updates the LED will return to the normal state
+// Flashing red:
+//   Battery voltage too low, switch off and auto-mode off, heaters off.
+// Flashing green:
+//   Battery voltage okay, switch off and auto-mode off, heaters off.
+// Solid red:
+//   Battery voltage too low, switch on or auto-mode on, heaters off.
+// Solid green:
+//   Battery voltage okay, switch on or auto-mode on, heaters on.
+// Flash blue:
+//   System booting/rebooting.
+// Solid blue:
+//   Hardware in setup mode, access the web interface at http://192.168.4.1 after connecting to the ae-update WiFi network.
+// Solid red/green/blue combined (probably looks mostly white):
+//   Software update available, if connected to a WiFi network the system will check once a day to see if there are any new 
+//   updates, it will signal that the update is ready, and then update. After the system updates the LED will return to the normal state.
+/////
+
 //////
+// How to use the physical switch:
+// Switch in the on position:
+//   Manually turn on the heaters (maybe this should be the enable auto mode function, rather than manual mode on?).
+// Switch in the off position:
+//   System in auto mode, will run the heaters every time the car starts for the duration of the timeout set in the web portal (defaults to 10 mins).
+// To turn on the config portal:
+//   Pause for a second on each state change (off to on or on to off), toggle the switch on-off-on-off-on-off (turn it on three times, turn it off)
+//   You can then connect a phone, laptop or tablet to the ae-update wifi network; no password required. A captive portal with some options should pop up.
+//   You can also access the portal, once started, by browsing to http://192.168.4.1 
+//   The portal will timeout after 3 minutes.
+// To factory default the device:
+//   Use the same process as above but toggle the switch on 5 times, then off, so
+//   on-off-on-off-on-off-on-off-on-off
+//   This will set the auto mode timout to 10 mins and erase all portal/WiFi settings. 
+//   If you connect the device to your home network, use a factory default to regain access to the portal if you are unable to find the device's IP address, which will  no longer be 192.168.4.1, check the WiFi router's web interface for the 
+////   
 
 
-// ToDo: exit the AP when you click exit in the web page
-// ToDo: time out the AP manually
+// ToDo: try to connect to wifi, if configured, once per day to check for updates
+// ToDo: stop the switch events from driving outputs until the timeout of the states
 
 #include <Arduino.h>
 #include <nvs_flash.h>
@@ -45,7 +63,6 @@ WiFiManagerParameter custom_heater_timeout("heaterTimeout", "Heater Timeout (0-3
 
 unsigned int  timeout   = 180; // seconds to run for
 unsigned int  startTime = millis();
-bool portalRunning      = false;
 bool startAP            = false; // start AP and webserver if true, else start only webserver
 bool updateUserCLITimeout = true; // allows the CLI to be updated with the heater timout output
 
@@ -65,7 +82,7 @@ int numPixels = 1;
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
 
 // variables to control brightness levels
-int brightness = 180; 
+int brightness = 100; 
 int brightDirection = -10;
 
 // a pre-processor macro
@@ -103,6 +120,7 @@ unsigned long debounceDelay = 200;    // the debounce time; increase if the outp
 
 hw_timer_t *clear_state_timer = NULL;
 hw_timer_t *output_enable_timer = NULL;
+hw_timer_t *ap_enable_timer = NULL;
 
 Preferences preferences;
 
@@ -114,11 +132,11 @@ uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 // Variable to store if sending data was successful
 String success;
 
-void IRAM_ATTR onTimer1() { // switch input timeout
+void IRAM_ATTR onTimer0() { // switch input timeout
   eventTimerExpired = true;
 }
 
-void IRAM_ATTR onTimer2() { // ouput timeout
+void IRAM_ATTR onTimer1() { // ouput timeout
   digitalWrite(windscreen, HIGH); // high is off
   digitalWrite(lMirror, HIGH); // high is off
   digitalWrite(rMirror, HIGH); // high is off
@@ -126,6 +144,17 @@ void IRAM_ATTR onTimer2() { // ouput timeout
   timerAlarmDisable(output_enable_timer); // disable the output timeout timer
   autoTimeout = true; // heater timeout has timed out
   updateUserCLITimeout = true; // allow the CLI to be updated with the timeout info
+}
+
+void disableAp() { // ap timeout
+  updateEnable = false;
+  updateRunning = false;
+  if (wm.getConfigPortalActive()) {
+    wm.stopConfigPortal();
+  }
+  if (wm.getWebPortalActive()) {
+    wm.stopWebPortal();
+  }
 }
 
 void switchEvent() {
@@ -138,7 +167,7 @@ void switchEvent() {
   lastDebounceTime = millis();
 }
 
-void adjustBrightness() {
+void adjustd() {
   brightness = brightness + brightDirection;
   if ( brightness < 5 ) {
      brightness = 0;
@@ -220,6 +249,12 @@ void processEventData() {
     updateEnable = true; // enable WiFi AP
     Serial.println("AP enabled for firmware update!\n");
     timerAlarmDisable(clear_state_timer);
+  } 
+  else if (stateChangeCounter > 4) {
+    stateChangeCounter = 0; // reset counter to 0 for the second loop
+    Serial.println("Factory reset in 3  2  1!\n");
+    wm.resetSettings();
+    factoryReset();
   }
   eventTimerExpired = false;
 }
@@ -231,21 +266,12 @@ void allOff() {
 }
 
 void doWiFiManager() {
-  // is auto timeout portal running
-  if(portalRunning) {
-    // check for timeout
-    if((millis()-startTime) > (timeout*1000)){
-      Serial.println("portaltimeout");
-      portalRunning = false;
-      if(startAP){
-        wm.stopConfigPortal();
-      }
-      else {
-        wm.stopWebPortal();
-      } 
-    }
+  if((millis()-startTime) > (timeout*1000)){
+    Serial.println("portaltimeout");
+    disableAp();
   }
 }
+
 
 void loadPreferences() {
   if (preferences.begin("ae-landy-heater", false)) {
@@ -300,7 +326,7 @@ void setup() {
 
   // setup state change counter wipe, to timout enter settings changes/modes
   clear_state_timer = timerBegin(0, 80, true);
-  timerAttachInterrupt(clear_state_timer, &onTimer1, true);
+  timerAttachInterrupt(clear_state_timer, &onTimer0, true);
   timerAlarmWrite(clear_state_timer, 5000000, true); // 5 seconds
 
   if (onTime < 1) { // sets the maximum on time, even in manual mode (0), to 30 mins (might be too short)
@@ -311,7 +337,7 @@ void setup() {
   }
 
   output_enable_timer = timerBegin(1, 80, true);
-  timerAttachInterrupt(output_enable_timer, &onTimer2, true);
+  timerAttachInterrupt(output_enable_timer, &onTimer1, true);
   timerAlarmWrite(output_enable_timer, onTimeTimer*60000000, true); // set in portal, 30 by defult
 
   Serial.println("\n\nSetup done");
@@ -345,7 +371,7 @@ void loop() {
   }
 
   if (eventTimerExpired) {
-    Serial.printf("Input wait timer expired");
+    Serial.printf("Input wait timer expired\n");
     processEventData();
   }
 
@@ -354,7 +380,7 @@ void loop() {
       doWiFiManager();
     }
     else { 
-      //wm.resetSettings();
+      
       Serial.println("Updating firmware, switch off heaters...");
       digitalWrite(lMirror, HIGH); // high is off
       digitalWrite(rMirror, HIGH); // high is off
@@ -363,18 +389,20 @@ void loop() {
       WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP    
       wm.addParameter(&custom_heater_timeout);
       wm.setSaveParamsCallback(saveParamsCallback);
-
-      //wm.resetSettings();
+      //wm.setBreakAfterConfig(true);
       wm.setConfigPortalBlocking(false);
+
+      startTime = millis(); // keeps track of whn the AP was enabled, to timout after 3 minutes
+
       //automatically connect using saved credentials if they exist
       //If connection fails it starts an access point with the specified name
       if(wm.autoConnect(ssid)) {
-        Serial.println("connected...yeey :)");
+        Serial.println("Connected to WiFi, as per the SSID that was selected in the config portal!");
       }
       else {
-        Serial.println("Configportal running");
+        Serial.println("Configportal running...");
       }
-      updateRunning = true; // ToDO: time this out
+      updateRunning = true;
     }
   } 
 
@@ -415,7 +443,7 @@ void loop() {
           strip.clear();
         }
         brightness = 5;  // fully red and dull
-        if (updateEnable) {
+        if ((updateEnable) && (wm.getConfigPortalActive())) {
           strip.setPixelColor(0, 255,255,255); // set pixel to blue
           strip.setBrightness(15); 
         }
@@ -468,7 +496,7 @@ void loop() {
     }
     previousMillis = currentMillis;
     strip.setBrightness(5);
-    if (updateEnable) {
+    if ((updateEnable) && (wm.getConfigPortalActive())) {
       strip.setPixelColor(0, 255,255,255); // set pixel to blue
       strip.setBrightness(15); 
     }
