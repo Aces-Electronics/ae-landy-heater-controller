@@ -35,8 +35,8 @@
 //   If you connect the device to your home network, use a factory default to regain access to the portal if you are unable to find the device's IP address, which will  no longer be 192.168.4.1, check the WiFi router's web interface for the
 ////
 
-// ToDo: try to connect to wifi, if configured, once per day to check for updates
-// ToDo: detect when the car starts
+// ToDo: try to connect to wifi, if configured, once per day to check for updates: https://medium.com/@adityabangde/esp32-firmware-updates-from-github-a-simple-ota-solution-173a95f4a97b
+// ToDo: detect when the car starts. take the lowest and highest voltages in the last minute and compare them? Look for a larg difference
 
 #include <Arduino.h>
 #include <nvs_flash.h>
