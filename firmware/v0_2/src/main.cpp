@@ -37,7 +37,7 @@
 
 
 // ToDo: try to connect to wifi, if configured, once per day to check for updates
-// ToDo: stop the switch events from driving outputs until the timeout of the states
+// ToDo: detect when the car starts
 
 #include <Arduino.h>
 #include <nvs_flash.h>
@@ -47,24 +47,11 @@
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
 
-#define debug // turns ap mode on in debug
-
-#if defined debug
-  bool enable_debug = true;
-  float onVoltage = 12.80; // input voltage to allow the heaters turn on when the car isn't running, for debugging
-#else
-  float onVoltage = 13.80; // input voltage to allow the heaters turn on
-#endif
-
 const char* ssid = "ae-update";
+float onVoltage = 13.80; // input voltage to allow the heaters turn on
 
-WiFiManager wm;
-WiFiManagerParameter custom_heater_timeout("heaterTimeout", "Heater Timeout (0-30 mins, 0 = manual enable)", "10", 2); // set the onTime in the portal according to savedparams
-
-unsigned int  timeout   = 180; // seconds to run for
+unsigned int  timeout   = 180; // seconds to run the AP for
 unsigned int  startTime = millis();
-bool startAP            = false; // start AP and webserver if true, else start only webserver
-bool updateUserCLITimeout = true; // allows the CLI to be updated with the heater timout output
 
 const int windscreen = 10; // WS MOSFET
 const int lMirror = 6; // LMR MOSFET
@@ -79,21 +66,17 @@ long interval = 1000; // seconds between IO and CLI updates
 int onTimeTimer = 30;
 int neoPixelPin = sysLED;
 int numPixels = 1;
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
 
 // variables to control brightness levels
 int brightness = 100; 
 int brightDirection = -10;
-
-// a pre-processor macro
-#define DELAY_TIME (10)
-
 int onTime; // -1 manual/unconfigured
 int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
 int readings[numReadings]; 
 int readIndex = 0;
 float inputVoltage; // device input voltage, used to know when not to enable the heater
 
+bool updateUserCLITimeout = true; // allows the CLI to be updated with the heater timout output
 bool updateEnable = false; // stores whether or not to enable WiFI AP for the purposes of updating the firmware
 bool updateRunning = false; // stores whether or not the AP has been started
 bool onSwitchState = 0; // stores the on switch state, set to 1 (off) 
@@ -113,10 +96,13 @@ long loopCounter = 0;
 long int t1 = 0;
 long int t2 = 0;
 
-
 unsigned long newtime = 0;
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 unsigned long debounceDelay = 200;    // the debounce time; increase if the output flickers
+
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
+WiFiManager wm;
+WiFiManagerParameter custom_heater_timeout("heaterTimeout", "Heater Timeout (0-30 mins, 0 = manual enable)", "10", 2); // set the onTime in the portal according to savedparams
 
 hw_timer_t *clear_state_timer = NULL;
 hw_timer_t *output_enable_timer = NULL;
@@ -259,19 +245,12 @@ void processEventData() {
   eventTimerExpired = false;
 }
 
-// Turns all the NeoPixels off
-void allOff() {
-  strip.clear();    // this is a simpler way to turn all the pixels off
-  strip.show();
-}
-
 void doWiFiManager() {
   if((millis()-startTime) > (timeout*1000)){
     Serial.println("portaltimeout");
     disableAp();
   }
 }
-
 
 void loadPreferences() {
   if (preferences.begin("ae-landy-heater", false)) {
@@ -466,10 +445,12 @@ void loop() {
             else {
               Serial.printf("Auto mode timer running for %i minutes...\n", onTime);
             }
-            digitalWrite(lMirror, LOW); // high is off
-            digitalWrite(rMirror, LOW); // high is off
-            digitalWrite(windscreen, LOW); // high is off
-            timerAlarmEnable(output_enable_timer); // enable the output timeout timer
+            if (eventTimerExpired) {
+              digitalWrite(lMirror, LOW); // high is off
+              digitalWrite(rMirror, LOW); // high is off
+              digitalWrite(windscreen, LOW); // high is off
+              timerAlarmEnable(output_enable_timer); // enable the output timeout timer
+            }
           }
         } 
         else {
@@ -478,11 +459,13 @@ void loop() {
       }
       else {
         Serial.printf("System normal, switch is off, running from alternator: %0.2fV!\n", inputVoltage);
-        digitalWrite(windscreen, HIGH); // high is off
-        digitalWrite(lMirror, HIGH); // high is off
-        digitalWrite(rMirror, HIGH); // high is off
-        timerRestart(output_enable_timer); // reset the counter for next time
-        timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
+        if (eventTimerExpired) {
+          digitalWrite(windscreen, HIGH); // high is off
+          digitalWrite(lMirror, HIGH); // high is off
+          digitalWrite(rMirror, HIGH); // high is off
+          timerRestart(output_enable_timer); // reset the counter for next time
+          timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
+        }
         
         if (!greenBlink) {
           strip.setPixelColor(0,0,255,0); // green 
