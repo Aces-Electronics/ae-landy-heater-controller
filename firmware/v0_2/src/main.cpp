@@ -35,7 +35,6 @@
 //   If you connect the device to your home network, use a factory default to regain access to the portal if you are unable to find the device's IP address, which will  no longer be 192.168.4.1, check the WiFi router's web interface for the
 ////
 
-// ToDo: try to connect to wifi, if configured, once per day to check for updates: https://medium.com/@adityabangde/esp32-firmware-updates-from-github-a-simple-ota-solution-173a95f4a97b
 // ToDo: detect when the car starts. take the lowest and highest voltages in the last minute and compare them? Look for a larg difference
 
 #include <Arduino.h>
@@ -45,11 +44,16 @@
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
+#include <WiFiClientSecure.h>
 
 const char *ssid = "ae-update";
 float onVoltage = 13.80; // input voltage to allow the heaters turn on
 
-unsigned int timeout = 180; // seconds to run the AP for
+#define OTAGH_OWNER_NAME "Aces-Electronics"
+#define OTAGH_REPO_NAME "ae-landy-heater-controller"
+#include <OTA-Hub-diy.hpp>
+
+unsigned int timeout = 180; // seconds to run the AP/WiFi client for
 unsigned int startTime = millis();
 
 const int windscreen = 10;   // WS MOSFET
@@ -104,6 +108,7 @@ unsigned long debounceDelay = 200;  // the debounce time; increase if the output
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(numPixels, neoPixelPin, NEO_GRB + NEO_KHZ800);
 WiFiManager wm;
 WiFiManagerParameter custom_heater_timeout("heaterTimeout", "Heater Timeout (0-30 mins, 0 = manual enable)", "10", 2); // set the onTime in the portal according to savedparams
+WiFiClientSecure wifi_client;
 
 hw_timer_t *check_for_update = NULL;
 hw_timer_t *output_enable_timer = NULL;
@@ -121,7 +126,8 @@ String success;
 
 void IRAM_ATTR onTimer0()
 { 
-  check_for_updates = true;
+  check_for_updates = true; // ToDo: make this simpler
+  updateEnable = true;
 }
 
 void IRAM_ATTR onTimer1()
@@ -223,7 +229,6 @@ void saveParamsCallback()
   {
     onTime = 0;
   }
-
   needToSavePreferences = true;
 }
 
@@ -254,7 +259,6 @@ void processEventData()
     stateChangeCounter = 0; // reset counter to 0 for the second loop
     updateEnable = true;    // enable WiFi AP
     Serial.println("AP enabled for firmware update!\n");
-    //timerAlarmDisable(check_for_update); 
   }
   else if (stateChangeCounter > 4)
   {
@@ -266,12 +270,58 @@ void processEventData()
   eventTimerExpired = false;
 }
 
+void OTACheck()
+{
+  // turn everthing off
+  digitalWrite(lMirror, HIGH);    // high is off
+  digitalWrite(rMirror, HIGH);    // high is off
+  digitalWrite(windscreen, HIGH); // high is off
+
+  // Initialise OTA
+  wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.cm SSL cert on the WiFiSecure modem
+  OTA::init(wifi_client);
+
+  // Check OTA for updates
+  OTA::UpdateObject details = OTA::isUpdateAvailable();
+  details.print();
+  if (OTA::NO_UPDATE != details.condition)
+  {
+      Serial.println("An update is available!");
+      // Perform OTA update
+      OTA::InstallCondition result = OTA::performUpdate(&details);
+      // GitHub hosts files on different server, so we have to follow the redirect, unfortunately.
+      if (result == OTA::REDIRECT_REQUIRED)
+      {
+        wifi_client.setCACert(OTAGH_REDIRECT_CA_CERT); // Now set the objects.githubusercontent.com SSL cert
+        OTA::continueRedirect(&details);               // Follow the redirect and performUpdate.
+      }
+  }
+  else
+  {
+      Serial.println("No new update available. Continuing...");
+  }
+  check_for_updates = false;
+}
+
 void doWiFiManager()
 {
   if ((millis() - startTime) > (timeout * 1000))
   {
     Serial.println("portaltimeout");
     disableAp();
+    check_for_updates = false;
+    updateEnable = false;
+  } 
+  else
+  {
+    if (check_for_updates)
+    {
+      if (wm.autoConnect(ssid))
+      {
+        Serial.println("Updating firmware, switch off heaters...");
+        OTACheck(); // only runs if WiFi client os configured and connected
+      }
+    }
   }
 }
 
@@ -334,7 +384,10 @@ void setup()
   // setup state change counter wipe, to timout enter settings changes/modes
   check_for_update = timerBegin(0, 80, true);
   timerAttachInterrupt(check_for_update, &onTimer0, true);
-  timerAlarmWrite(check_for_update, 86400000000, true); // 24 hours, auto reloads  
+  //timerAlarmWrite(check_for_update, 86400000000, true); // 24 hours, auto reloads  
+  timerAlarmWrite(check_for_update, 60000000, true); // 24 hours, auto reloads  
+  timerAlarmEnable(check_for_update); // Enable the timer
+
 
   if (onTime < 1)
   { // sets the maximum on time, even in manual mode (0), to 30 mins (might be too short)
@@ -388,6 +441,8 @@ void loop()
   {
     Serial.printf("Input wait timer expired\n");
     processEventData();
+    Serial.println("Hard resetting loop counters and states: Settings timeout!\n");
+    stateChangeCounter = 0;
   }
 
   if (updateEnable)
@@ -398,12 +453,6 @@ void loop()
     }
     else
     {
-
-      Serial.println("Updating firmware, switch off heaters...");
-      digitalWrite(lMirror, HIGH);    // high is off
-      digitalWrite(rMirror, HIGH);    // high is off
-      digitalWrite(windscreen, HIGH); // high is off
-
       WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
       wm.addParameter(&custom_heater_timeout);
       wm.setSaveParamsCallback(saveParamsCallback);
@@ -417,6 +466,11 @@ void loop()
       if (wm.autoConnect(ssid))
       {
         Serial.println("Connected to WiFi, as per the SSID that was selected in the config portal!");
+        if (check_for_updates)
+        {
+          Serial.println("Updating firmware, switch off heaters...");
+          OTACheck(); // only runs if WiFi client os configured and connected
+        }
       }
       else
       {
@@ -430,14 +484,6 @@ void loop()
   {
     updateUserCLITimeout = false;
     Serial.println("Auto timeout has switched off outputs...");
-  }
-
-  if ((t2 - t1 > 10) && (stateChangeCounter > 0)) // this is used to reset counters
-  { // timeout mode setting after 10 seconds
-    stateChangeCounter = 0;
-    Serial.println("Hard resetting loop counters and states: Settings timeout!\n");
-    t1 = millis() / 1000; // reset the timer for the third loop, save settings
-    //timerAlarmDisable(check_for_update); // This can be used to enable/disable the dodgy seconds counter
   }
 
   // simple timer to send serial prints at less than the speed of light
@@ -519,6 +565,9 @@ void loop()
       else
       {
         Serial.printf("System normal, switch is off, running from alternator: %0.2fV!\n", inputVoltage);
+        Serial.printf("check_for_updates state: %i \n", check_for_updates);
+        Serial.printf("updateEnable state: %i \n\n", updateEnable);
+        
         if (eventTimerExpired)
         {
           digitalWrite(windscreen, HIGH);         // high is off
