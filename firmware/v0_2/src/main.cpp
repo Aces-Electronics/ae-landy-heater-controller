@@ -78,7 +78,9 @@ int onTime;                 // -1 manual/unconfigured
 int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
 int readings[numReadings];
 int readIndex = 0;
+
 float inputVoltage; // device input voltage, used to know when not to enable the heater
+float lastReading = 13.2; // made up this initial value
 
 bool updateUserCLITimeout = true; // allows the CLI to be updated with the heater timout output
 bool updateEnable = false;        // stores whether or not to enable WiFI AP for the purposes of updating the firmware
@@ -91,6 +93,7 @@ bool autoTimeout = 0;             // stores the state of the autoTimeout feature
 bool greenBlink = 0;              // green led blink off
 bool redBlink = 0;                // red led blink off
 bool blueBlink = 0;               // blue led blink off
+bool enableOutputs = 0;
 
 const float r1 = 13000.0f;                             // R1 in ohm, 13k
 const float r2 = 2200.0f;                              // R2 in ohm, 2.2k
@@ -167,18 +170,23 @@ void switchEvent()
   lastDebounceTime = millis();
 }
 
-void adjustd()
+void pulseLED()
 {
-  brightness = brightness + brightDirection;
-  if (brightness < 5)
-  {
-    brightness = 0;
-    brightDirection = -brightDirection;
-  }
-  else if (brightness > 255)
-  {
-    brightness = 255;
-    brightDirection = -brightDirection;
+  for (int i = 0; i < 10; i = i + 1)
+  {   
+    brightness = brightness + brightDirection;
+    if (brightness < 5)
+    {
+      brightness = 0;
+      brightDirection = -brightDirection;
+    }
+    else if (brightness > 255)
+    {
+      brightness = 255;
+      brightDirection = -brightDirection;
+    }
+    strip.setPixelColor(0, 0, 0, 255); // set pixel to blue
+    strip.setBrightness(brightness);
   }
 }
 
@@ -200,7 +208,7 @@ long smooth()
   }
   // calculate the average:
   average = total / numReadings;
-
+  
   return average;
 }
 
@@ -215,6 +223,17 @@ void checkVoltage()
   {
     avg += buffer[i] / buffer.size();
   }
+
+  // deal with the startup delay for voltage normalilsation (20 seconds), to avoid turning the outputs on unnecessarily
+  if ((buffer.size() > 199) && ((millis() - newtime) > 20000 ))
+  {
+    if ((inputVoltage - lastReading) > 0.5) // if current reading is xV greater than the last, assume the car has started
+    {
+      enableOutputs = true;
+    } 
+  }
+  lastReading = inputVoltage;
+
   inputVoltage = avg;
 }
 
@@ -258,7 +277,7 @@ void processEventData()
   {
     stateChangeCounter = 0; // reset counter to 0 for the second loop
     updateEnable = true;    // enable WiFi AP
-    Serial.println("AP enabled for firmware update!\n");
+    Serial.println("AP enabled for configuration!\n");
   }
   else if (stateChangeCounter > 4)
   {
@@ -375,17 +394,17 @@ void setup()
   digitalWrite(lMirror, HIGH);
   digitalWrite(rMirror, HIGH);
 
-  loadPreferences();
+  // load configured settings from NVRAM
+  loadPreferences(); // ToDo: something isn't working here, onTime isn't loaded for example
   newtime = millis();
-
+  
   // detect switch events
   attachInterrupt(digitalPinToInterrupt(onSwitch), switchEvent, CHANGE);
 
   // setup state change counter wipe, to timout enter settings changes/modes
   check_for_update = timerBegin(0, 80, true);
   timerAttachInterrupt(check_for_update, &onTimer0, true);
-  //timerAlarmWrite(check_for_update, 86400000000, true); // 24 hours, auto reloads  
-  timerAlarmWrite(check_for_update, 60000000, true); // 24 hours, auto reloads  
+  timerAlarmWrite(check_for_update, 86400000000, true); // 24 hours, auto reloads  
   timerAlarmEnable(check_for_update); // Enable the timer
 
 
@@ -494,14 +513,13 @@ void loop()
     if (inputVoltage < onVoltage * .99)
     { // battery is flat- problem...
       Serial.printf("Input voltage too low to turn on heater: %0.2fV!\n", inputVoltage);
-      Serial.println("Outputs and timer disabled!\n");
       digitalWrite(windscreen, HIGH); // high is off
       digitalWrite(lMirror, HIGH);
       digitalWrite(rMirror, HIGH);
       timerRestart(output_enable_timer);      // reset the counter for next time
       timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
 
-      if (onSwitchState)
+      if ((onSwitchState) || (enableOutputs))
       {
         strip.setPixelColor(0, 255, 0, 0); // red
       }
@@ -526,8 +544,8 @@ void loop()
       }
     }
     else if (inputVoltage >= onVoltage)
-    { // ToDo: need a way to turn on the heater when the car is started
-      if (onSwitchState)
+    {
+      if ((onSwitchState) || (enableOutputs))
       {
         strip.setPixelColor(0, 0, 255, 0); // green
         strip.setBrightness(5);
@@ -535,14 +553,14 @@ void loop()
         
         dodgySecondsCounter = 0; // reset the switch input timout
 
-        Serial.println("Switch is on, heaters are on");
+        Serial.println("Heaters are on");
         if (buffer.size() > 199)
         {
           if (!autoTimeout)
           { // timer not expired
-            if (onTime < 1)
+            if (!enableOutputs)
             {
-              Serial.printf("Heaters enabled in manual mode (auto timeout set to 0 in the Portal\n");
+              Serial.printf("Outputs enabled manually\n");
             }
             else
             {
@@ -556,6 +574,13 @@ void loop()
               timerAlarmEnable(output_enable_timer); // enable the output timeout timer
             }
           }
+          else
+          {
+            Serial.printf("Timer has expired, disabliing outputs...\n");
+            digitalWrite(windscreen, HIGH);         // high is off
+            digitalWrite(lMirror, HIGH);            // high is off
+            digitalWrite(rMirror, HIGH);            // high is off
+          }
         }
         else
         {
@@ -564,10 +589,7 @@ void loop()
       }
       else
       {
-        Serial.printf("System normal, switch is off, running from alternator: %0.2fV!\n", inputVoltage);
-        Serial.printf("check_for_updates state: %i \n", check_for_updates);
-        Serial.printf("updateEnable state: %i \n\n", updateEnable);
-        
+        Serial.printf("System waiting, switch is off, running from alternator: %0.2fV!\n", inputVoltage); // ToDo: use alternator or battery
         if (eventTimerExpired)
         {
           digitalWrite(windscreen, HIGH);         // high is off
@@ -599,7 +621,7 @@ void loop()
   }
   strip.show();
 
-  // keeps the maximum loops/seconds tracker limited to 4 ot less
+  // keeps the maximum loops/seconds tracker limited to 4 or less
   if (dodgySecondsCounter > 4)
   {
     dodgySecondsCounter = 0;
