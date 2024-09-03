@@ -90,6 +90,7 @@ bool updateUserCLITimeout = true; // allows the CLI to be updated with the heate
 bool enableWiFi = false;        // stores whether or not to enable WiFI AP for the purposes of updating the firmware
 bool updateRunning = false;       // stores whether or not the AP has been started
 bool check_for_updates = false;    // sets a flag from the timer once per day
+bool checkOnFirstConnect = true;
 bool onSwitchState = 0;           // stores the on switch state, set to 1 (off)
 bool eventTimerExpired = 0;       // stores the state of the event timer
 bool needToSavePreferences = 0;   // stores whether or not to update preferences, for use in the main loop
@@ -494,7 +495,7 @@ void loop()
       if (wm.autoConnect(ssid))
       {
         Serial.println("Connected to WiFi, as per the SSID that was selected in the config portal!");
-        if (check_for_updates)
+        if ((check_for_updates) || (checkOnFirstConnect))
         {
           Serial.println("Updating firmware, switch off heaters...");
           OTACheck(); // only runs if WiFi client os configured and connected
