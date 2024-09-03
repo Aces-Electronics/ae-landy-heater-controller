@@ -404,7 +404,7 @@ void setup()
   digitalWrite(rMirror, HIGH);
 
   // load configured settings from NVRAM
-  loadPreferences(); // ToDo: something isn't working here, onTime isn't loaded, for example
+  loadPreferences();
   newtime = millis();
   
   // detect switch events
@@ -593,7 +593,7 @@ void loop()
       {
         if (onSwitchState)
         {
-          Serial.println("Switch is on"); // ToDo: if  switch on at boot or manually set to on, no timeout is set, timer runs though
+          Serial.println("Switch is on");
         }
         if (!enableWiFi)
         {
