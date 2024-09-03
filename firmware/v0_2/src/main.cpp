@@ -1,41 +1,39 @@
 //////
 // How to read the LED on the JonoTron Hardware:
-// Flashing red:
-//   Battery voltage too low, switch off and auto-mode off, heaters off.
-// Flashing green:
-//   Battery voltage okay, switch off and auto-mode off, heaters off.
-// Solid red:
-//   Battery voltage too low, switch on or auto-mode on, heaters off.
-// Solid green:
-//   Battery voltage okay, switch on or auto-mode on, heaters on.
-// Flash blue:
-//   System booting/rebooting.
-// Solid blue:
-//   Hardware in setup mode, access the web interface at http://192.168.4.1 after connecting to the ae-update WiFi network.
-// Solid red/green/blue combined (probably looks mostly white):
-//   Software update available, if connected to a WiFi network the system will check once a day to see if there are any new
-//   updates, it will signal that the update is ready, and then update. After the system updates the LED will return to the normal state.
+//  Flashing red:
+//    Battery voltage too low, switch off and auto-mode off, heaters off.
+//  Flashing green:
+//    Battery voltage okay, switch off and auto-mode off, heaters off.
+//  Solid red:
+//    Battery voltage too low, switch on or auto-mode on, heaters off.
+//  Solid green:
+//    Battery voltage okay, switch on or auto-mode on, heaters on.
+//  Flash blue once:
+//    System booting/rebooting.
+//  Flashing blue:
+//    If WiFi unconfigured, hardware in setup mode, access the web interface at http://192.168.4.1 after connecting to the ae-update WiFi network.
+//    If Wifi configured, accessing Internet and checking for new firmware
+//  Solid red/green/blue combined (probably looks mostly white):
+//    Software update available, after the system updates the device will restart and the LED will return to the system's state.
 /////
 
 //////
 // How to use the physical switch:
-// Switch in the on position:
-//   Manually turn on the heaters (maybe this should be the enable auto mode function, rather than manual mode on?).
-// Switch in the off position:
-//   System in auto mode, will run the heaters every time the car starts for the duration of the timeout set in the web portal (defaults to 10 mins).
-// To turn on the config portal:
-//   Pause for a second on each state change (off to on or on to off), toggle the switch on-off-on-off-on-off (turn it on three times, turn it off)
-//   You can then connect a phone, laptop or tablet to the ae-update wifi network; no password required. A captive portal with some options should pop up.
-//   You can also access the portal, once started, by browsing to http://192.168.4.1
-//   The portal will timeout after 3 minutes.
-// To factory default the device:
-//   Use the same process as above but toggle the switch on 5 times, then off, so
-//   on-off-on-off-on-off-on-off-on-off
-//   This will set the auto mode timout to 10 mins and erase all portal/WiFi settings.
-//   If you connect the device to your home network, use a factory default to regain access to the portal if you are unable to find the device's IP address, which will  no longer be 192.168.4.1, check the WiFi router's web interface for the
+//  Switch in the on position:
+//    Manually turn on the heaters (maybe this should be the enable auto mode function, rather than manual mode on?).
+//  Switch in the off position:
+//    System in auto mode, will run the heaters every time the car starts for the duration of the timeout set in the web portal (defaults to 10 mins).
+//  To turn on the config portal:
+//    Pause for a second on each state change (off to on or on to off), toggle the switch on-off-on-off-on-off (turn it on three times, turn it off)
+//    You can then connect a phone, laptop or tablet to the ae-update wifi network; no password required. A captive portal with some options should pop up.
+//    You can also access the portal, once started, by browsing to http://192.168.4.1
+//    The portal will timeout after 3 minutes.
+//  To factory default the device:
+//    Use the same process as above but toggle the switch on 5 times, then off, so
+//    on-off-on-off-on-off-on-off-on-off
+//    This will set the auto mode timout to 10 mins and erase all portal/WiFi settings.
+//    If you connect the device to your home network, use a factory default to regain access to the portal if you are unable to find the device's IP address, which will  no longer be 192.168.4.1, check the WiFi router's web interface for the
 ////
-
-// ToDo: detect when the car starts. take the lowest and highest voltages in the last minute and compare them? Look for a larg difference
 
 #include <Arduino.h>
 #include <nvs_flash.h>
@@ -78,6 +76,8 @@ int onTime;                 // -1 manual/unconfigured
 int stateChangeCounter = 0; // counts the on/off toggles for mode setting purposes
 int readings[numReadings];
 int readIndex = 0;
+
+char voltageSource[11] = {"unknown"}; 
 
 float inputVoltage; // device input voltage, used to know when not to enable the heater
 float lastReading = 13.2; // made up this initial value
@@ -176,14 +176,14 @@ void pulseLED()
   for (int i = 0; i < 10; i = i + 1)
   {   
     brightness = brightness + brightDirection;
-    if (brightness < 5)
+    if (brightness < 1)
     {
       brightness = 0;
       brightDirection = -brightDirection;
     }
-    else if (brightness > 125)
+    else if (brightness > 99)
     {
-      brightness = 125;
+      brightness = 100;
       brightDirection = -brightDirection;
     }
     delay(5);
@@ -236,6 +236,15 @@ void checkVoltage()
   lastReading = inputVoltage;
 
   inputVoltage = avg;
+
+  if (inputVoltage < 13.5)
+  {
+    strcpy(voltageSource, "battery");
+  }
+  else
+  {
+    strcpy(voltageSource, "alternator");
+  }
 }
 
 void saveParamsCallback()
@@ -396,7 +405,7 @@ void setup()
   digitalWrite(rMirror, HIGH);
 
   // load configured settings from NVRAM
-  loadPreferences(); // ToDo: something isn't working here, onTime isn't loaded for example
+  loadPreferences(); // ToDo: something isn't working here, onTime isn't loaded, for example
   newtime = millis();
   
   // detect switch events
@@ -605,7 +614,7 @@ void loop()
       }
       else
       {
-        Serial.printf("System waiting, switch is off, running from alternator: %0.2fV!\n", inputVoltage); // ToDo: use alternator or battery
+        Serial.printf("System waiting, switch is off, running from %s: %0.2fV!\n", voltageSource, inputVoltage); 
         if (eventTimerExpired)
         {
           digitalWrite(windscreen, HIGH);         // high is off
