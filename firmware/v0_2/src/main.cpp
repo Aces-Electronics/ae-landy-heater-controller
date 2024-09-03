@@ -83,7 +83,7 @@ float inputVoltage; // device input voltage, used to know when not to enable the
 float lastReading = 13.2; // made up this initial value
 
 bool updateUserCLITimeout = true; // allows the CLI to be updated with the heater timout output
-bool updateEnable = false;        // stores whether or not to enable WiFI AP for the purposes of updating the firmware
+bool enableWiFi = false;        // stores whether or not to enable WiFI AP for the purposes of updating the firmware
 bool updateRunning = false;       // stores whether or not the AP has been started
 bool check_for_updates = false;    // sets a flag from the timer once per day
 bool onSwitchState = 0;           // stores the on switch state, set to 1 (off)
@@ -130,7 +130,7 @@ String success;
 void IRAM_ATTR onTimer0()
 { 
   check_for_updates = true; // ToDo: make this simpler
-  updateEnable = true;
+  enableWiFi = true;
 }
 
 void IRAM_ATTR onTimer1()
@@ -146,7 +146,7 @@ void IRAM_ATTR onTimer1()
 
 void disableAp()
 { // ap timeout
-  updateEnable = false;
+  enableWiFi = false;
   updateRunning = false;
   if (wm.getConfigPortalActive())
   {
@@ -172,6 +172,7 @@ void switchEvent()
 
 void pulseLED()
 {
+  strip.setPixelColor(0, 0, 0, 255); // set pixel to blue
   for (int i = 0; i < 10; i = i + 1)
   {   
     brightness = brightness + brightDirection;
@@ -180,12 +181,12 @@ void pulseLED()
       brightness = 0;
       brightDirection = -brightDirection;
     }
-    else if (brightness > 255)
+    else if (brightness > 125)
     {
-      brightness = 255;
+      brightness = 125;
       brightDirection = -brightDirection;
     }
-    strip.setPixelColor(0, 0, 0, 255); // set pixel to blue
+    delay(5);
     strip.setBrightness(brightness);
   }
 }
@@ -276,7 +277,7 @@ void processEventData()
   if (stateChangeCounter == 3)
   {
     stateChangeCounter = 0; // reset counter to 0 for the second loop
-    updateEnable = true;    // enable WiFi AP
+    enableWiFi = true;    // enable WiFi AP
     Serial.println("AP enabled for configuration!\n");
   }
   else if (stateChangeCounter > 4)
@@ -317,7 +318,7 @@ void OTACheck()
   }
   else
   {
-      Serial.println("No new update available. Continuing...");
+    Serial.println("No new update available. Continuing...");
   }
   check_for_updates = false;
 }
@@ -329,7 +330,7 @@ void doWiFiManager()
     Serial.println("portaltimeout");
     disableAp();
     check_for_updates = false;
-    updateEnable = false;
+    enableWiFi = false;
   } 
   else
   {
@@ -458,14 +459,15 @@ void loop()
 
   if (eventTimerExpired)
   {
-    Serial.printf("Input wait timer expired\n");
+    Serial.printf("Input wait timer expired!\n");
     processEventData();
     Serial.println("Hard resetting loop counters and states: Settings timeout!\n");
     stateChangeCounter = 0;
   }
 
-  if (updateEnable)
+  if (enableWiFi)
   {
+    pulseLED();
     if (updateRunning)
     {
       doWiFiManager();
@@ -475,13 +477,12 @@ void loop()
       WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
       wm.addParameter(&custom_heater_timeout);
       wm.setSaveParamsCallback(saveParamsCallback);
-      // wm.setBreakAfterConfig(true);
       wm.setConfigPortalBlocking(false);
 
       startTime = millis(); // keeps track of whn the AP was enabled, to timout after 3 minutes
 
-      // automatically connect using saved credentials if they exist
-      // If connection fails it starts an access point with the specified name
+      // automatically connect using saved credentials, if they exist
+      // If connection fails, starts an access point with the specified name
       if (wm.autoConnect(ssid))
       {
         Serial.println("Connected to WiFi, as per the SSID that was selected in the config portal!");
@@ -519,27 +520,39 @@ void loop()
       timerRestart(output_enable_timer);      // reset the counter for next time
       timerAlarmDisable(output_enable_timer); // disable the  output timeout timer
 
-      if ((onSwitchState) || (enableOutputs))
+      if ((onSwitchState) || (enableOutputs)) 
       {
-        strip.setPixelColor(0, 255, 0, 0); // red
+        if (!enableWiFi)
+        {
+          strip.setPixelColor(0, 255, 0, 0); // red
+        }
       }
       else
       {
         if (!redBlink)
         {
-          strip.setPixelColor(0, 255, 0, 0); // red
-          redBlink = true;
+          if (!enableWiFi)
+          {
+            strip.setPixelColor(0, 255, 0, 0); // red
+            redBlink = true;
+          }
         }
         else
         {
-          redBlink = false;
-          strip.clear();
+          if (!enableWiFi)
+          {
+            redBlink = false;
+            strip.clear();
+          }
         }
         brightness = 5; // fully red and dull
-        if ((updateEnable) && (wm.getConfigPortalActive()))
+        if ((enableWiFi) && (wm.getConfigPortalActive()))
         {
-          strip.setPixelColor(0, 255, 255, 255); // set pixel to blue
-          strip.setBrightness(15);
+          if (!enableWiFi)
+          {
+            strip.setPixelColor(0, 255, 255, 255); // set pixel to blue
+            strip.setBrightness(15);
+          }
         }
       }
     }
@@ -547,8 +560,11 @@ void loop()
     {
       if ((onSwitchState) || (enableOutputs))
       {
-        strip.setPixelColor(0, 0, 255, 0); // green
-        strip.setBrightness(5);
+        if (!enableWiFi)
+        {
+          strip.setPixelColor(0, 0, 255, 0); // green
+          strip.setBrightness(5);
+        }
         t1 = millis() / 1000;                // used for: seconds since switch was flicked
         
         dodgySecondsCounter = 0; // reset the switch input timout
@@ -601,8 +617,11 @@ void loop()
 
         if (!greenBlink)
         {
+          if (!enableWiFi)
+          {
           strip.setPixelColor(0, 0, 255, 0); // green
           greenBlink = true;
+          }
         }
         else
         {
@@ -612,11 +631,17 @@ void loop()
       }
     }
     previousMillis = currentMillis;
-    strip.setBrightness(5);
-    if ((updateEnable) && (wm.getConfigPortalActive()))
+    if (!enableWiFi)
     {
-      strip.setPixelColor(0, 255, 255, 255); // set pixel to blue
-      strip.setBrightness(15);
+      strip.setBrightness(5);
+    }
+    if ((enableWiFi) && (wm.getConfigPortalActive()))
+    {
+      if (!enableWiFi)
+      {
+        strip.setPixelColor(0, 255, 255, 255); // set pixel to blue
+        strip.setBrightness(15);
+      }
     }
   }
   strip.show();
