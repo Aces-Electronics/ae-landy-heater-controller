@@ -1132,7 +1132,6 @@ bool WiFiManager::wifiConnectDefault(){
   #endif
 
   ret = WiFi_enableSTA(true,storeSTAmode);
-  delay(500); // THIS DELAY ?
 
   #ifdef WM_DEBUG_LEVEL
   DEBUG_WM(WM_DEBUG_DEV,F("Mode after delay: "),getModeString(WiFi.getMode()));
