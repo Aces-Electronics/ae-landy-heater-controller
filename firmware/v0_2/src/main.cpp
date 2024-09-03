@@ -535,6 +535,8 @@ void loop()
         {
           enableOutputs = true;
           autoTimeout = false;
+          timerWrite(output_enable_timer, 0);
+          timerAlarmEnable(output_enable_timer); // enable the output timeout timer
           Serial.println("Engine start detected!");
         }
       } 
@@ -610,15 +612,6 @@ void loop()
           if (!autoTimeout)
           { 
             Serial.println("Heater is on");
-            if (eventTimerExpired)
-            {
-              digitalWrite(lMirror, LOW);            // high is off
-              digitalWrite(rMirror, LOW);            // high is off
-              digitalWrite(windscreen, LOW);         // high is off
-              timerWrite(output_enable_timer, 0);
-              timerAlarmEnable(output_enable_timer); // enable the output timeout timer
-              Serial.println("Heaters switched on automatically, auto-timout is set!");
-            }
             if ((!enableOutputs) && ((millis() - lastDebounceTime) > 5))
             {
               digitalWrite(lMirror, LOW);            // high is off
@@ -632,6 +625,15 @@ void loop()
               }  
               checkDodgySecondsCounter = dodgySecondsCounter;
               Serial.println("Heaters switched on manually, auto-timout is set!");
+            }
+            else
+            {
+              digitalWrite(lMirror, LOW);            // high is off
+              digitalWrite(rMirror, LOW);            // high is off
+              digitalWrite(windscreen, LOW);         // high is off
+              timerWrite(output_enable_timer, 0);
+              timerAlarmEnable(output_enable_timer); // enable the output timeout timer
+              Serial.println("Heaters switched on automatically, auto-timout is set!");
             }
             Serial.printf("Outputs enabled for a further %0.2fs of %i seconds!\n", (onTimeTimer*60 - (timerReadSeconds(output_enable_timer))), onTimeTimer*60);
           }
