@@ -7,6 +7,9 @@
   12V heater controller for mirrors and windscreens  
 </h1>
 
+# Have a look at the Wiki for setup guides:
+<a https://github.com/Aces-Electronics/ae-landy-heater-controller/wiki/Quick-Start-Guide></a>
+
 # TOC:
 1. <a href="#goals">Goals</a>
 1. <a href="#JonoTron-3000-v0.2">Current PCB Design</a>
