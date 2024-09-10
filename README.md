@@ -8,7 +8,7 @@
 </h1>
 
 # Have a look at the Wiki for setup guides:
-<a https://github.com/Aces-Electronics/ae-landy-heater-controller/wiki/Quick-Start-Guide></a>
+<a href="https://github.com/Aces-Electronics/ae-landy-heater-controller/wiki/Quick-Start-Guide"></a>
 
 # TOC:
 1. <a href="#goals">Goals</a>
