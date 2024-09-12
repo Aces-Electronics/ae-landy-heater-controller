@@ -8,7 +8,7 @@
 </h1>
 
 # Looking to get up and running?
-- [Wiki - Quickstart Guide](../../wiki/Quick-Start-Guide)
+- [Wiki - Quickstart Guide](../../wiki/Quickstart-Guide)
 
 # Project Goals:
 The overall goal of this project is to make a simple, robust and reliable heater controller for vehicles that have heated mirrors and windscreens, like a Land Rover Defender for example. The controller will be solid state and be able to handle up to 30A at 12-14V with a maximum input voltage of 20V.
