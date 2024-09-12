@@ -348,7 +348,7 @@ void doWiFiManager()
       if (wm.autoConnect(ssid))
       {
         Serial.println("Updating firmware, switch off heaters...");
-        OTACheck(); // only runs if WiFi client os configured and connected
+        OTACheck(); // only runs if WiFi client is configured and connected
       }
     }
   }

@@ -26,41 +26,26 @@ Design goals:
 - Easy to mount
 - Zero maintenance
 
+# JonoTron-3000 v0.3
+Version 0.3 was made to address a small issue with the switch pull-up, which was incorrectly tied to 12V instead of 3.3V. The hardware pull-up has been removed completely in ths version as the ESP32 has internal pull-ups that are more than capable.
+
+![v0.3 Front](product_images/Screenshot%202024-09-12%20at%2010.33.30 PM.png)
+![AE-Land-Heater_Controller](product_images/Screenshot%202024-09-10%20at%209.38.59 PM.png)
+
 # JonoTron-3000 v0.2
-Version two was made to addresss a couple of isssues, namely:
+Version 0.2 was made to addresss a couple of isssues, namely:
 - Input and ouputs polarity was swapped, thanks to the xt-60 injection mould anomally that made a - look like a + when I eyeballed it to see which side was negative
 - All outputs were tied together and were't individually controllable
 - The board couldn't really handle 30A, not safely
 
-I am waiting for the boards to turn up from JLCPCB.
+Boards are tested and workng well!
 
 v0.2 renders: 
 
 ![v0.2 Front](.repo_files/v0_2/JonoBro_v0_2.png)
 
-![v0.2 Rear](.repo_files/v0_2/JonoBro_rear_v0_2.png)
-
-# JonoTron-3000 v0.1
-These first units have been used for circuit and load testing, and are not production ready. This is mainly due to the input and output polarities being accidently reversed. 
-
-They do handle 30A, though they do get hot. The boards were only made from one ounce copper as I thought there was no way that the boards would end up working on first spin. the v0.1 boards were used to thoroughly test the concept, write the software and do destructive testing.
-
-In the end the v0.1 units looked like this, Note: the polarity is reversed!!!: 
-
-![v0.1 Wiring](.repo_files/v0_1/JonoBro_v0_1_wiring.png)
-
-![v0.1 Rear](.repo_files/v0_1/JonoBro_v0_1_rear.png)
-
-![v0.1 Kicad PCB](.repo_files/v0_1/JonoBro_v0_1_pcb.png)
-
-![v0.1 FLIR](.repo_files/v0_1/JonoBro_v0_1_FLIR.png)
-
-The circuit diagram, complete with the polarity swap mistake:
-
-![v0.1 FLIR](.repo_files/v0_1/JonoBro_v0_1_schematic.png)
-
 # Where to Buy:
-TBA
+<a href="https://d1b959-f7.myshopify.com/">The AE Store</a>
 
 ## Support:
-Contact me direct via ace<@>aceselectronics.com.au, just make it look like a normal email address. (hiding from the bots ;) )
+Contact me direct via ace<@>aceselectronics.com.au, just make it look like a normal email address. (hiding from the bots ;)
