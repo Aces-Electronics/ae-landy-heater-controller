@@ -10,17 +10,10 @@
 # Looking to get up and running?
 - [Wiki - Quickstart Guide](../../wiki/Quick-Start-Guide)
 
-# TOC:
-1. <a href="#goals">Goals</a>
-1. <a href="#JonoTron-3000-v0.3">Current PCB Design</a>
-1. <a href="#JonoTron-3000-v0.2">Previous PCB Design</a>
-1. <a href="#where-to-buy">Where to Buy</a>
-1. <a href="#support">Support</a>
----
-# Goals:
+# Project Goals:
 The overall goal of this project is to make a simple, robust and reliable heater controller for vehicles that have heated mirrors and windscreens, like a Land Rover Defender for example. The controller will be solid state and be able to handle up to 30A at 12-14V with a maximum input voltage of 20V.
 
-Design goals:  
+# Design goals:  
 - Smallest form-factor possible while being able to handle 30A without getting too hot
 - Simple configuration
 - Easy to mount
@@ -45,7 +38,7 @@ v0.2 renders:
 ![v0.2 Front](.repo_files/v0_2/JonoBro_v0_2.png)
 
 # Where to Buy:
-<a href="https://d1b959-f7.myshopify.com/">The AE Store</a>
+Available to purchase in Australia or New Zealand via <a href="https://d1b959-f7.myshopify.com/">The AE Store</a>
 
 ## Support:
 Contact me direct via ace<@>aceselectronics.com.au, just make it look like a normal email address. (hiding from the bots ;)
