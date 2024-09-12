@@ -12,8 +12,8 @@
 
 # TOC:
 1. <a href="#goals">Goals</a>
-1. <a href="#JonoTron-3000-v0.2">Current PCB Design</a>
-1. <a href="#JonoTron-3000-v0.1">Previous PCB Design</a>
+1. <a href="#JonoTron-3000-v0.3">Current PCB Design</a>
+1. <a href="#JonoTron-3000-v0.2">Previous PCB Design</a>
 1. <a href="#where-to-buy">Where to Buy</a>
 1. <a href="#support">Support</a>
 ---
