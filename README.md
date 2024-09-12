@@ -24,6 +24,7 @@ Version 0.3 was made to address a small issue with the switch pull-up, which was
 
 ![v0.3 Front](product_images/Screenshot%202024-09-12%20at%2010.33.30 PM.png)
 ![AE-Land-Heater_Controller](product_images/Screenshot%202024-09-10%20at%209.38.59 PM.png)
+![AE-Land-Heater_Controller-Exploded](product_images/Screenshot%202024-09-10%20at%2010.16.59 PM.png)
 
 # JonoTron-3000 v0.2
 Version 0.2 was made to addresss a couple of isssues, namely:
