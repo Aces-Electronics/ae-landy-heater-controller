@@ -18,7 +18,7 @@
 /////
 
 //////
-// this is a test
+// this is a test2
 // How to use the physical switch:
 //  Switch in the on position:
 //    Manually turn on the heaters (maybe this should be the enable auto mode function, rather than manual mode on?).
