@@ -24,13 +24,13 @@ jobs:
               run: |
                 export PLATFORMIO_BUILD_FLAGS='-DOTA_VERSION=\"${{ github.event.release.tag_name }}\"'
                 echo "$PLATFORMIO_BUILD_FLAGS"
-                pio run -e esp32-c3
+                pio run -e ae-landy-heater-controller -d ./firmware 
 
             - name: Upload Firmware
               uses: actions/upload-artifact@v4
               with:
                   name: firmware
-                  path: .pio/build/*/firmware.bin
+                  path: ./firmware/.pio/build/*/firmware.bin
 
     update-firmware-asset:
         needs: pio-build
