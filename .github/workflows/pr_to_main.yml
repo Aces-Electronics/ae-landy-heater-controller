@@ -24,7 +24,7 @@ jobs:
               shell: bash
 
             - name: Build Firmware
-              run: pio run -e ae-landy-heater-controller -d ./firmware 
+              run: pio run -e ae-landy-heater-controller
 
             - name: Check Build Status
               run: exit $?
