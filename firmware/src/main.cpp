@@ -24,7 +24,7 @@
 //  Switch in the off position:
 //    System in auto mode, will run the heaters every time the car starts for the duration of the timeout set in the web portal (defaults to 10 mins).
 //  To turn on the config portal:
-//    Pause for a second on each state change (off to on or on to off), toggle the switch on-off-on-off-on-off (turn it on three times, turn it off)
+//    Turn it on-off three times, pause for a second on each state change (off to on or on to off), toggle the switch on-off-on-off-on-off.
 //    You can then connect a phone, laptop or tablet to the ae-update wifi network; no password required. A captive portal with some options should pop up.
 //    You can also access the portal, once started, by browsing to http://192.168.4.1
 //    The portal will timeout after 3 minutes.
@@ -44,14 +44,19 @@
 #include <ESPmDNS.h>
 #include <WiFiClientSecure.h>
 
-#define debug_mode false
+#define debug_mode true
 
 const char *ssid = "ae-update";  // SSID for WiFi Manager
 float onVoltage = 13.80; // input voltage to allow the heaters turn on
 
 #define OTAGH_OWNER_NAME "Aces-Electronics" // github owner for URL concatenation
 #define OTAGH_REPO_NAME "ae-landy-heater-controller" // github repo name for URL concatenation
-#include <OTA-Hub-diy.hpp> // 
+
+#define OTAGH_OWNER_NAME "Aces-Electronics" // github owner for URL concatenation
+#define OTAGH_REPO_NAME "ae-landy-heater-controller" // github repo name for URL concatenation
+#include <ota-github-cacerts.h>
+#include <ota-github-defaults.h>
+#include <OTA-Hub.hpp> // https://github.com/Hard-Stuff/OTA-Hub-diy-example_project
 
 long onTimeTimer = 1;       // default output on time duration (10)
 unsigned int timeout = 180; // seconds to run the AP/WiFi client for
@@ -308,20 +313,22 @@ void OTACheck() // check for new firmware
   wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.cm SSL cert on the WiFiSecure modem
   OTA::init(wifi_client);
 
+// Initialise OTA
+  wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.cm SSL cert on the WiFiSecure modem
+  //wifi_client.setInsecure()
+  OTA::init(wifi_client);
+
   // Check OTA for updates
   OTA::UpdateObject details = OTA::isUpdateAvailable();
   details.print();
   if (OTA::NO_UPDATE != details.condition)
   {
-    Serial.println("An update is available!");
-    // Perform OTA update
-    OTA::InstallCondition result = OTA::performUpdate(&details);
-    // GitHub hosts files on different server, so we have to follow the redirect, unfortunately.
-    if (result == OTA::REDIRECT_REQUIRED)
-    {
-      wifi_client.setCACert(OTAGH_REDIRECT_CA_CERT); // Now set the objects.githubusercontent.com SSL cert
-      OTA::continueRedirect(&details);               // Follow the redirect and performUpdate.
-    }
+      Serial.println("An update is available!");
+      // Perform OTA update
+      if (OTA::performUpdate(&details) == OTA::SUCCESS)
+      {
+        // do custom code stuff here
+      }
   }
   else
   {
