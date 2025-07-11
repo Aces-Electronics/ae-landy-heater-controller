@@ -419,7 +419,8 @@ void setup() // run once
   // setup state change counter wipe, to timout enter settings changes/modes
   check_for_update = timerBegin(0, 80, true);
   timerAttachInterrupt(check_for_update, &onTimer0, true);
-  timerAlarmWrite(check_for_update, 86400000000, true); // 24 hours, auto reloads
+  //timerAlarmWrite(check_for_update, 86400000000, true); // 24 hours, auto reloads
+  timerAlarmWrite(check_for_update, 6000000, true); // 24 hours, auto reloads
   timerAlarmEnable(check_for_update);                   // Enable the timer
 
   if (onTime > 0) // checks to see if the hardware is configured
